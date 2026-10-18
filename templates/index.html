@@ -1,47 +1,68 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kabutrader — Japan Day Trading & Predictive Terminal</title>
+  <title>Kabutrader — 日本株デイトレード・予測ターミナル (TSE Pro)</title>
   <link rel="stylesheet" href="/static/css/style.css">
-  <!-- Lightweight Charts for professional financial candlestick plotting -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <!-- Lightweight Charts for professional candlestick trading graphics -->
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
-<body>
+<body data-color-mode="jp">
   <!-- Top Navigation & Macro Bar -->
   <header class="top-nav">
     <div class="logo-group">
-      <div class="terminal-badge">TSE // 東証</div>
-      <div class="app-title">KABUTRADER <span class="tag">DAY TRADING PRO</span></div>
+      <div class="terminal-badge">東証 // TSE PRO</div>
+      <div class="app-title">
+        <span class="brand-text">KABUTRADER</span>
+        <span class="sub-brand">日本株デイトレードAIターミナル</span>
+      </div>
     </div>
 
-    <!-- Live Macro Tickers -->
+    <!-- Live Market Session & Macro Tickers -->
     <div class="macro-bar">
+      <!-- TSE Session Live Status -->
+      <div class="macro-item session-indicator">
+        <span class="live-dot" id="session-dot"></span>
+        <span class="session-text" id="session-status">東証 開場状況確認中...</span>
+      </div>
+
       <div class="macro-item" id="macro-nikkei">
-        <span class="macro-label">NIKKEI 225</span>
+        <span class="macro-label">日経平均</span>
         <span class="macro-val">--</span>
         <span class="macro-chg">--%</span>
       </div>
+
       <div class="macro-item" id="macro-usdjpy">
-        <span class="macro-label">USD / JPY</span>
+        <span class="macro-label">ドル円 (USD/JPY)</span>
         <span class="macro-val">--</span>
         <span class="macro-chg">--%</span>
       </div>
+
       <div class="macro-item" id="macro-regime">
-        <span class="macro-label">MARKET REGIME</span>
-        <span class="badge badge-regime">CALCULATING...</span>
+        <span class="macro-label">市場レジーム</span>
+        <span class="badge badge-regime">分析中...</span>
       </div>
+
       <div class="macro-item clock-item">
-        <span class="macro-label">TOKYO (JST)</span>
+        <span class="macro-label">日本時間 (JST)</span>
         <span class="clock-val" id="jst-clock">--:--:--</span>
       </div>
     </div>
 
+    <!-- Actions & Color Convention Toggle -->
     <div class="top-actions">
-      <button class="btn btn-refresh" id="btn-refresh" title="Refresh Live Data">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-        <span>REFRESH</span>
+      <button class="btn btn-mode-toggle" id="btn-mode-toggle" title="配色切り替え (東証式: 赤高・青安 ⇔ 海外式: 緑高・赤安)">
+        <span class="mode-icon">🎌</span>
+        <span id="mode-text">東証式 (赤高/青安)</span>
+      </button>
+
+      <button class="btn btn-refresh" id="btn-refresh" title="全データ即時更新">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+        <span>更新</span>
       </button>
     </div>
   </header>
@@ -52,22 +73,42 @@
     <section class="panel screener-panel">
       <div class="panel-header">
         <div class="title-with-count">
-          <h2>TSE MARKET SCREENER</h2>
-          <span class="count-pill" id="stock-count">0</span>
+          <div class="header-left">
+            <h2>東証スクリーナー <span class="en-sub">// TSE LIVE SCANNER</span></h2>
+          </div>
+          <span class="count-pill" id="stock-count">0 銘柄</span>
         </div>
         
         <!-- Filter Controls -->
         <div class="screener-controls">
-          <div class="cap-filters">
-            <button class="cap-btn active" data-cap="all">ALL</button>
-            <button class="cap-btn" data-cap="large">LARGE CAP</button>
-            <button class="cap-btn" data-cap="mid">MID CAP</button>
-            <button class="cap-btn" data-cap="small">SMALL / GROWTH</button>
+          <!-- Action Filters (Buy / Hold / Sell) -->
+          <div class="filter-row">
+            <span class="filter-heading">売買判定:</span>
+            <div class="action-filters">
+              <button class="act-btn active" data-action="all">すべて</button>
+              <button class="act-btn btn-act-buy" data-action="buy">◎/○ 買い</button>
+              <button class="act-btn btn-act-hold" data-action="hold">△ 様子見</button>
+              <button class="act-btn btn-act-sell" data-action="sell">▼/× 売り</button>
+            </div>
+          </div>
+
+          <!-- Market Cap Filters -->
+          <div class="filter-row">
+            <span class="filter-heading">市場規模:</span>
+            <div class="cap-filters">
+              <button class="cap-btn active" data-cap="all">全銘柄</button>
+              <button class="cap-btn" data-cap="large">プライム大型</button>
+              <button class="cap-btn" data-cap="mid">中型主力</button>
+              <button class="cap-btn" data-cap="small">小型・グロース</button>
+            </div>
           </div>
           
           <div class="search-bar">
-            <input type="text" id="screener-search" placeholder="Filter or enter code (e.g. 7203, 6920)...">
-            <button id="btn-lookup-custom">SCAN</button>
+            <div class="input-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" id="screener-search" placeholder="銘柄コード または 銘柄名を入力 (例: 7203, 6920, 5032)...">
+            </div>
+            <button id="btn-lookup-custom">銘柄スキャン</button>
           </div>
         </div>
       </div>
@@ -77,22 +118,22 @@
         <table class="screener-table">
           <thead>
             <tr>
-              <th>CODE</th>
-              <th>NAME</th>
-              <th>CAP</th>
-              <th class="text-right">PRICE (¥)</th>
-              <th class="text-right">CHANGE</th>
-              <th class="text-center">RVOL</th>
+              <th>コード</th>
+              <th>銘柄名</th>
+              <th>市場規模</th>
+              <th class="text-right">株価 (円)</th>
+              <th class="text-right">前日比</th>
+              <th class="text-center">出来高急増</th>
               <th class="text-center">RSI</th>
-              <th class="text-center">QUANT SIGNAL</th>
-              <th class="text-right">WIN PROB</th>
+              <th class="text-center">売買判定</th>
+              <th class="text-right">上昇予測</th>
             </tr>
           </thead>
           <tbody id="screener-tbody">
             <tr>
               <td colspan="9" class="loading-state">
                 <div class="spinner"></div>
-                <span>Scanning Tokyo Stock Exchange across Large, Mid & Small Caps...</span>
+                <span>東証全銘柄 (大型・中型・小型グロース) リアルタイム分析中...</span>
               </td>
             </tr>
           </tbody>
@@ -107,8 +148,11 @@
         <div class="stock-title-group">
           <div class="stock-code-badge" id="det-code">7203.T</div>
           <div>
-            <h1 class="stock-name" id="det-name">Toyota Motor</h1>
-            <div class="stock-sub" id="det-sub">トヨタ自動車 // Automotive // Large Cap</div>
+            <div class="stock-name-row">
+              <h1 class="stock-name" id="det-name">トヨタ自動車</h1>
+              <span class="stock-en" id="det-en">Toyota Motor</span>
+            </div>
+            <div class="stock-sub" id="det-sub">輸送用機器 // プライム大型株</div>
           </div>
         </div>
         <div class="stock-quote-group">
@@ -120,16 +164,20 @@
       <!-- Day Trading Trade Setup Card -->
       <div class="trade-card" id="trade-card">
         <div class="card-badge-row">
-          <div class="signal-tag" id="det-signal">CALCULATING</div>
-          <div class="action-tag" id="det-action">ACTION: WAIT</div>
-          <div class="setup-name" id="det-setup">Evaluating technical confluence...</div>
+          <div class="signal-tag" id="det-signal">
+            <span class="sig-mark" id="det-mark">◎</span>
+            <span class="sig-text" id="det-sig-text">強い買い</span>
+          </div>
+          <div class="action-tag" id="det-action">買いエントリー推奨</div>
+          <div class="setup-name" id="det-setup">順張りブレイクアウト（VWAP＆EMA9押し目追随）</div>
         </div>
 
         <!-- Predictive Probability Meter -->
         <div class="probability-meter">
           <div class="prob-labels">
-            <span class="prob-bull">BULLISH ODDS: <strong id="det-prob-up">--%</strong></span>
-            <span class="prob-bear">BEARISH ODDS: <strong id="det-prob-down">--%</strong></span>
+            <span class="prob-bull">▲ 上昇予測確率: <strong id="det-prob-up">--%</strong></span>
+            <span class="prob-confidence">モデル信頼度: <strong id="det-confidence">--%</strong></span>
+            <span class="prob-bear">▼ 下落予測確率: <strong id="det-prob-down">--%</strong></span>
           </div>
           <div class="meter-bar">
             <div class="meter-fill" id="det-meter-fill" style="width: 50%;"></div>
@@ -139,29 +187,29 @@
         <!-- Order Brackets for Day Traders -->
         <div class="order-brackets">
           <div class="bracket-box bracket-entry">
-            <span class="bracket-label">ENTRY TRIGGER</span>
+            <span class="bracket-label">エントリー目安</span>
             <span class="bracket-val" id="det-entry">¥--</span>
-            <span class="bracket-sub">Breakout / VWAP Pullback</span>
+            <span class="bracket-sub">VWAP / 節目指値</span>
           </div>
           <div class="bracket-box bracket-stop">
-            <span class="bracket-label">STOP LOSS (1.5x ATR)</span>
+            <span class="bracket-label">損切りライン (1.5x ATR)</span>
             <span class="bracket-val" id="det-stop">¥--</span>
-            <span class="bracket-sub">Capital Protection</span>
+            <span class="bracket-sub">資金管理・即時撤退</span>
           </div>
           <div class="bracket-box bracket-target">
-            <span class="bracket-label">TARGET 1 (1.5R)</span>
+            <span class="bracket-label">利食い目標① (1.5R)</span>
             <span class="bracket-val" id="det-target1">¥--</span>
-            <span class="bracket-sub">Scale 60%</span>
+            <span class="bracket-sub">60%部分利確推奨</span>
           </div>
           <div class="bracket-box bracket-target2">
-            <span class="bracket-label">TARGET 2 (2.6R)</span>
+            <span class="bracket-label">利食い目標② (2.6R)</span>
             <span class="bracket-val" id="det-target2">¥--</span>
-            <span class="bracket-sub">Trail Remainder</span>
+            <span class="bracket-sub">残株トレーリング</span>
           </div>
           <div class="bracket-box bracket-rr">
-            <span class="bracket-label">RISK / REWARD</span>
+            <span class="bracket-label">リスクリワード比</span>
             <span class="bracket-val" id="det-rr">1:--</span>
-            <span class="bracket-sub">Expected Ratio</span>
+            <span class="bracket-sub">期待損益比</span>
           </div>
         </div>
       </div>
@@ -170,30 +218,30 @@
       <div class="analytics-grid">
         <!-- Quant Factors Breakdown -->
         <div class="card quant-factors">
-          <h3>PREDICTIVE FACTOR MATRIX</h3>
+          <h3>5大要因AI予測マトリクス <span class="card-tag">MULTI-FACTOR</span></h3>
           <div class="factor-rows">
             <div class="factor-row">
-              <span class="f-name">Trend Confluence (EMA 9/21/50 + VWAP)</span>
+              <span class="f-name">トレンド追随度 (EMA 9/21/50 + VWAP)</span>
               <div class="f-bar-wrap"><div class="f-bar" id="f-trend" style="width: 50%;"></div></div>
               <span class="f-val" id="f-trend-val">+0</span>
             </div>
             <div class="factor-row">
-              <span class="f-name">Momentum Velocity (RSI & MACD Acceleration)</span>
+              <span class="f-name">モメンタム勢力 (RSI & MACD加速度)</span>
               <div class="f-bar-wrap"><div class="f-bar" id="f-momentum" style="width: 50%;"></div></div>
               <span class="f-val" id="f-momentum-val">+0</span>
             </div>
             <div class="factor-row">
-              <span class="f-name">Volatility & Squeeze (Bollinger %B & ATR)</span>
+              <span class="f-name">ボラティリティ収縮・拡大 (ボリンジャー %B / ATR)</span>
               <div class="f-bar-wrap"><div class="f-bar" id="f-volatility" style="width: 50%;"></div></div>
               <span class="f-val" id="f-volatility-val">+0</span>
             </div>
             <div class="factor-row">
-              <span class="f-name">Institutional Volume (Relative Vol RVol)</span>
+              <span class="f-name">大口・機関投資家出来高 (RVol相対比)</span>
               <div class="f-bar-wrap"><div class="f-bar" id="f-volume" style="width: 50%;"></div></div>
               <span class="f-val" id="f-volume-val">+0</span>
             </div>
             <div class="factor-row">
-              <span class="f-name">Japan Macro Tailwind (USD/JPY & Nikkei)</span>
+              <span class="f-name">為替・マクロ連動 (ドル円レート & 日経平均)</span>
               <div class="f-bar-wrap"><div class="f-bar" id="f-macro" style="width: 50%;"></div></div>
               <span class="f-val" id="f-macro-val">+0</span>
             </div>
@@ -202,13 +250,13 @@
 
         <!-- Floor Pivots & Intraday Levels -->
         <div class="card pivots-card">
-          <h3>INTRADAY FLOOR PIVOTS</h3>
+          <h3>デイトレード・ピボット水準 <span class="card-tag">FLOOR PIVOTS</span></h3>
           <div class="pivots-table">
-            <div class="pivot-row r2"><span class="p-lvl">R2 Resistance</span><span class="p-price" id="p-r2">¥--</span></div>
-            <div class="pivot-row r1"><span class="p-lvl">R1 Resistance</span><span class="p-price" id="p-r1">¥--</span></div>
-            <div class="pivot-row p"><span class="p-lvl">P Central Pivot</span><span class="p-price" id="p-p">¥--</span></div>
-            <div class="pivot-row s1"><span class="p-lvl">S1 Support</span><span class="p-price" id="p-s1">¥--</span></div>
-            <div class="pivot-row s2"><span class="p-lvl">S2 Support</span><span class="p-price" id="p-s2">¥--</span></div>
+            <div class="pivot-row r2"><span class="p-lvl">R2 (第2レジスタンス)</span><span class="p-price" id="p-r2">¥--</span></div>
+            <div class="pivot-row r1"><span class="p-lvl">R1 (第1レジスタンス)</span><span class="p-price" id="p-r1">¥--</span></div>
+            <div class="pivot-row p"><span class="p-lvl">P (基準ピボット値)</span><span class="p-price" id="p-p">¥--</span></div>
+            <div class="pivot-row s1"><span class="p-lvl">S1 (第1サポート)</span><span class="p-price" id="p-s1">¥--</span></div>
+            <div class="pivot-row s2"><span class="p-lvl">S2 (第2サポート)</span><span class="p-price" id="p-s2">¥--</span></div>
           </div>
         </div>
       </div>
@@ -217,12 +265,12 @@
       <div class="chart-wrapper">
         <div class="chart-toolbar">
           <div class="timeframe-buttons">
-            <button class="tf-btn active" data-tf="15m">15M INTRADAY</button>
-            <button class="tf-btn" data-tf="1d">1D DAILY</button>
+            <button class="tf-btn active" data-tf="15m">15分足 (デイトレード)</button>
+            <button class="tf-btn" data-tf="1d">日足 (スイング・トレンド)</button>
           </div>
           <div class="chart-legend">
-            <span class="legend-item"><span class="color-dot bull"></span>Bullish Bar</span>
-            <span class="legend-item"><span class="color-dot bear"></span>Bearish Bar</span>
+            <span class="legend-item"><span class="color-dot bull"></span><span class="legend-text-bull">陽線 (上昇)</span></span>
+            <span class="legend-item"><span class="color-dot bear"></span><span class="legend-text-bear">陰線 (下落)</span></span>
           </div>
         </div>
         <div id="chart-container" class="chart-canvas"></div>

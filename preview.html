@@ -1,12 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <style>
+    :root {
+      --bg: #05070b;
+      --panel: rgba(255, 255, 255, 0.04);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-brand: rgba(0, 224, 184, 0.35);
+      --text: #e9edf5;
+      --muted: #8e9ab0;
+      --faint: #5d6879;
+      --brand: #00e0b8;
+      --brand-2: #22d3ee;
+      --buy: #ff5565; /* 赤 (東証式: 上昇/買い) */
+      --sell: #4d8dff; /* 青 (東証式: 下落/売り) */
+      --hold: #f5b544; /* 黄色 (様子見) */
+    }
     body {
-      background: #0a0d14;
-      color: #f0f4fc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
       margin: 0;
       padding: 16px;
     }
@@ -14,26 +28,36 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid #232d44;
-      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
       margin-bottom: 14px;
     }
-    .title {
-      font-weight: 800;
-      font-size: 16px;
+    .title-group {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
     .badge {
-      background: #2a1532;
-      color: #f472b6;
-      border: 1px solid #701a75;
+      background: rgba(0, 224, 184, 0.12);
+      color: var(--brand);
+      border: 1px solid var(--border-brand);
       font-family: monospace;
       font-size: 10px;
-      font-weight: 700;
-      padding: 2px 6px;
+      font-weight: 800;
+      padding: 3px 8px;
       border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .title {
+      font-weight: 900;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+    }
+    .title .sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      margin-left: 6px;
     }
     .macro {
       display: flex;
@@ -41,164 +65,216 @@
       font-family: monospace;
       font-size: 11px;
     }
-    .bull { color: #00d084; }
-    .bear { color: #ff4d6d; }
-    .accent { color: #38bdf8; }
+    .buy-text { color: var(--buy); font-weight: 800; }
+    .sell-text { color: var(--sell); font-weight: 800; }
+    .hold-text { color: var(--hold); font-weight: 800; }
+    .brand-text { color: var(--brand); font-weight: 800; }
     .grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.15fr 1fr;
       gap: 12px;
     }
     .card {
-      background: #111622;
-      border: 1px solid #232d44;
-      border-radius: 6px;
-      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 6px;
     }
     .card h3 {
-      margin: 0 0 8px 0;
+      margin: 0;
       font-size: 11px;
-      font-family: monospace;
-      color: #8b9bb4;
+      font-weight: 800;
+      color: var(--muted);
       text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tag-sm {
+      font-size: 9px;
+      color: var(--brand);
+      background: rgba(0, 224, 184, 0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
     }
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: 11px;
-      font-family: monospace;
     }
     th {
       text-align: left;
-      color: #54647f;
-      padding: 4px 6px;
-      border-bottom: 1px solid #232d44;
+      color: var(--faint);
+      padding: 5px 6px;
+      border-bottom: 1px solid var(--border);
+      font-size: 10px;
+      font-weight: 700;
     }
     td {
-      padding: 5px 6px;
-      border-bottom: 1px solid #161c2b;
+      padding: 6px 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      font-family: monospace;
     }
     .sig-pill {
       font-size: 9px;
       font-weight: 800;
-      padding: 2px 5px;
-      border-radius: 3px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
     }
-    .sig-buy { background: #00d084; color: #000; }
-    .sig-sell { background: #ff4d6d; color: #fff; }
-    .sig-neu { background: #192032; color: #8b9bb4; }
-    .bracket-row {
+    .sig-strong-buy { background: var(--buy); color: #fff; }
+    .sig-buy { background: rgba(255, 85, 101, 0.15); color: var(--buy); border: 1px solid var(--buy); }
+    .sig-hold { background: rgba(245, 181, 68, 0.15); color: var(--hold); border: 1px solid rgba(245, 181, 68, 0.4); }
+    .sig-sell { background: rgba(77, 141, 255, 0.15); color: var(--sell); border: 1px solid var(--sell); }
+    .bracket-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .bracket-cell {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 8px;
       display: flex;
-      justify-content: space-between;
-      margin-top: 6px;
-      font-family: monospace;
-      font-size: 11px;
+      flex-direction: column;
+      gap: 2px;
     }
+    .b-label { font-size: 9px; color: var(--faint); font-weight: 700; }
+    .b-val { font-size: 13px; font-weight: 900; font-family: monospace; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="title">
-      <span class="badge">TSE // 東証</span>
-      KABUTRADER — JAPAN DAY TRADING TERMINAL
+    <div class="title-group">
+      <span class="badge">東証 // TSE PRO</span>
+      <div class="title">
+        KABUTRADER
+        <span class="sub">日本株デイトレードAIターミナル</span>
+      </div>
     </div>
     <div class="macro">
-      <span>NIKKEI: <strong class="bull">65,324 (+1.39%)</strong></span>
-      <span>USD/JPY: <strong class="bull">157.98 (+0.02%)</strong></span>
-      <span>REGIME: <strong class="accent">MILDLY BULLISH</strong></span>
+      <span>日経平均: <strong class="buy-text">65,324 (▲ +1.39%)</strong></span>
+      <span>ドル円: <strong class="buy-text">¥157.98 (▲ +0.02%)</strong></span>
+      <span>東証配色: <strong class="brand-text">赤高・青安 (JP)</strong></span>
     </div>
   </div>
 
   <div class="grid">
+    <!-- Screener Snapshot -->
     <div class="card">
-      <h3>Active Screener Top Signals</h3>
+      <div class="card-head">
+        <h3>東証スクリーナー判定抜粋</h3>
+        <span class="tag-sm">LIVE SIGNALS</span>
+      </div>
       <table>
         <thead>
           <tr>
-            <th>CODE</th>
-            <th>NAME</th>
-            <th>CAP</th>
-            <th>PRICE</th>
-            <th>SIGNAL</th>
-            <th>WIN PROB</th>
+            <th>コード</th>
+            <th>銘柄名</th>
+            <th>規模</th>
+            <th>株価 (円)</th>
+            <th>売買判定</th>
+            <th style="text-align: right;">勝率</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td class="accent">7267</td>
-            <td>Honda Motor</td>
-            <td>Large</td>
+            <td style="color: var(--brand-2); font-weight: 800;">7267</td>
+            <td style="font-family: inherit; font-weight: 700;">ホンダ</td>
+            <td>プライム</td>
             <td>¥1,797.5</td>
-            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
-            <td class="bull">94.9%</td>
+            <td><span class="sig-pill sig-strong-buy"><span>◎</span>強い買い</span></td>
+            <td class="buy-text" style="text-align: right;">94.9%</td>
           </tr>
           <tr>
-            <td class="accent">4393</td>
-            <td>Bank of Innov.</td>
-            <td>Small</td>
+            <td style="color: var(--brand-2); font-weight: 800;">4393</td>
+            <td style="font-family: inherit; font-weight: 700;">BOI</td>
+            <td>グロース</td>
             <td>¥7,380.0</td>
-            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
-            <td class="bull">94.9%</td>
+            <td><span class="sig-pill sig-strong-buy"><span>◎</span>強い買い</span></td>
+            <td class="buy-text" style="text-align: right;">94.9%</td>
           </tr>
           <tr>
-            <td class="accent">5032</td>
-            <td>ANYCOLOR</td>
-            <td>Small</td>
+            <td style="color: var(--brand-2); font-weight: 800;">5032</td>
+            <td style="font-family: inherit; font-weight: 700;">ANYCOLOR</td>
+            <td>グロース</td>
             <td>¥3,225.0</td>
-            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
-            <td class="bull">92.9%</td>
+            <td><span class="sig-pill sig-strong-buy"><span>◎</span>強い買い</span></td>
+            <td class="buy-text" style="text-align: right;">92.9%</td>
           </tr>
           <tr>
-            <td class="accent">5253</td>
-            <td>COVER Corp</td>
-            <td>Small</td>
-            <td>¥1,661.0</td>
-            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
-            <td class="bull">92.9%</td>
-          </tr>
-          <tr>
-            <td class="accent">6920</td>
-            <td>Lasertec</td>
-            <td>Mid</td>
+            <td style="color: var(--brand-2); font-weight: 800;">6920</td>
+            <td style="font-family: inherit; font-weight: 700;">レーザーテック</td>
+            <td>中型主力</td>
             <td>¥41,200.0</td>
-            <td><span class="sig-pill sig-neu">NEUTRAL</span></td>
-            <td>50.0%</td>
+            <td><span class="sig-pill sig-hold"><span>△</span>様子見</span></td>
+            <td class="hold-text" style="text-align: right;">50.0%</td>
+          </tr>
+          <tr>
+            <td style="color: var(--brand-2); font-weight: 800;">7203</td>
+            <td style="font-family: inherit; font-weight: 700;">トヨタ自動車</td>
+            <td>プライム</td>
+            <td>¥3,094.0</td>
+            <td><span class="sig-pill sig-buy"><span>○</span>買い</span></td>
+            <td class="buy-text" style="text-align: right;">91.1%</td>
           </tr>
         </tbody>
       </table>
     </div>
 
+    <!-- Active Trade Bracket -->
     <div class="card">
-      <h3>Active Trade Setup — Honda Motor (7267.T)</h3>
-      <div style="font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #fff;">
-        Setup: Bullish Momentum Breakout (VWAP & EMA9 Trail)
+      <div class="card-head">
+        <h3>個別銘柄エントリー計画: ホンダ (7267.T)</h3>
+        <span class="tag-sm">ATR 1.5X BRACKETS</span>
       </div>
-      <div class="bracket-row">
-        <span>Action:</span>
-        <strong class="bull">LONG</strong>
+      <div style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 4px;">
+        【◎ 強い買い】順張りブレイクアウト（VWAP＆EMA9押し目追随）
       </div>
-      <div class="bracket-row">
-        <span>Entry Trigger:</span>
-        <strong class="accent">¥1,797.5</strong>
+      <div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">
+        現在値: ¥1,797.5 (前日比 ▲ +1.2%) // 出来高: 通常比 1.24倍 (大口流入)
       </div>
-      <div class="bracket-row">
-        <span>Stop Loss (1.5x ATR):</span>
-        <strong class="bear">¥1,760.8</strong>
+
+      <div class="bracket-grid">
+        <div class="bracket-cell">
+          <span class="b-label">エントリー目安</span>
+          <span class="b-val brand-text">¥1,797.5</span>
+        </div>
+        <div class="bracket-cell">
+          <span class="b-label">損切り (ATR 1.5x)</span>
+          <span class="b-val sell-text">¥1,760.8</span>
+        </div>
+        <div class="bracket-cell">
+          <span class="b-label">利食い① (1.5R)</span>
+          <span class="b-val buy-text">¥1,852.6</span>
+        </div>
+        <div class="bracket-cell">
+          <span class="b-label">利食い② (2.6R)</span>
+          <span class="b-val" style="color: var(--brand-2);">¥1,892.9</span>
+        </div>
+        <div class="bracket-cell">
+          <span class="b-label">リスクリワード比</span>
+          <span class="b-val hold-text">1:1.50</span>
+        </div>
+        <div class="bracket-cell">
+          <span class="b-label">基準ピボット (P)</span>
+          <span class="b-val" style="color: #fff;">¥1,784.0</span>
+        </div>
       </div>
-      <div class="bracket-row">
-        <span>Target 1 (1.5R):</span>
-        <strong class="bull">¥1,852.6</strong>
-      </div>
-      <div class="bracket-row">
-        <span>Target 2 (2.6R):</span>
-        <strong class="bull">¥1,892.9</strong>
-      </div>
-      <div class="bracket-row">
-        <span>Risk / Reward:</span>
-        <strong style="color: #fbbf24;">1:1.50</strong>
-      </div>
-      <div style="margin-top: 10px; font-size: 10px; color: #8b9bb4; border-top: 1px solid #232d44; padding-top: 6px;">
-        Webapp actively running on <code>http://127.0.0.1:5000</code>. Includes interactive TradingView candles, floor pivots, and live TSE scanning.
+
+      <div style="margin-top: 10px; font-size: 10px; color: var(--faint); border-top: 1px solid var(--border); padding-top: 6px;">
+        ローカルサーバー稼働中: <code>http://127.0.0.1:5000</code>（15分足TradingViewチャート、配色切替、リアルタイム全銘柄スキャン対応）
       </div>
     </div>
   </div>

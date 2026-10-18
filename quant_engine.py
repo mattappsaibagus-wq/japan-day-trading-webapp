@@ -221,28 +221,47 @@ def generate_directional_prediction(df, macro_context=None):
     prob_up_pct = round(prob_up * 100, 1)
     prob_down_pct = round(100.0 - prob_up_pct, 1)
 
-    # Classify Signal
+    # Classify Signal with authentic Japanese market marks
     if total_score >= 45:
         signal = "STRONG BUY"
-        setup = "Bullish Momentum Breakout (Ride with VWAP & EMA9 trail)"
+        signal_jp = "強い買い"
+        mark = "◎"
+        action = "BUY"
+        action_jp = "買いエントリー"
+        setup = "順張りブレイクアウト（VWAP＆EMA9押し目追随）"
     elif total_score >= 15:
         signal = "BUY"
-        setup = "Pullback Long into Support / EMA21 Bounce"
+        signal_jp = "買い"
+        mark = "○"
+        action = "BUY"
+        action_jp = "押し目買い"
+        setup = "サポレジ押し目買い / EMA21リバウンド狙い"
     elif total_score <= -45:
         signal = "STRONG SELL"
-        setup = "Aggressive Breakdown Short (Trailing under EMA9)"
+        signal_jp = "強い売り"
+        mark = "×"
+        action = "SELL"
+        action_jp = "空売りエントリー"
+        setup = "下値支持線ブレイクダウン / EMA9下落追随"
     elif total_score <= -15:
         signal = "SELL"
-        setup = "Fade Rallies into Resistance / VWAP Rejection"
+        signal_jp = "売り"
+        mark = "▼"
+        action = "SELL"
+        action_jp = "戻り売り"
+        setup = "戻り高値売り / VWAP・レジスタンス反落"
     else:
-        signal = "NEUTRAL"
-        setup = "Range Consolidation — Wait for Volatility Squeeze Breakout"
+        signal = "HOLD"
+        signal_jp = "様子見"
+        mark = "△"
+        action = "HOLD"
+        action_jp = "様子見 / 保有"
+        setup = "保ち合いレンジ相場 — ブレイクアウト待機"
 
     # Day Trading Execution Plan (ATR-based dynamic brackets)
     atr_buffer = max(atr * 1.2, close * 0.005)
     
-    if signal in ["STRONG BUY", "BUY"]:
-        rec_action = "LONG"
+    if action == "BUY":
         entry_price = round(close, 1)
         stop_loss = round(close - atr_buffer, 1)
         target1 = round(close + (atr_buffer * 1.5), 1)
@@ -250,8 +269,7 @@ def generate_directional_prediction(df, macro_context=None):
         risk = entry_price - stop_loss
         reward = target1 - entry_price
         rr_ratio = round(reward / risk, 2) if risk > 0 else 1.5
-    elif signal in ["STRONG SELL", "SELL"]:
-        rec_action = "SHORT"
+    elif action == "SELL":
         entry_price = round(close, 1)
         stop_loss = round(close + atr_buffer, 1)
         target1 = round(close - (atr_buffer * 1.5), 1)
@@ -259,8 +277,7 @@ def generate_directional_prediction(df, macro_context=None):
         risk = stop_loss - entry_price
         reward = entry_price - target1
         rr_ratio = round(reward / risk, 2) if risk > 0 else 1.5
-    else:
-        rec_action = "WAIT / OBSERVE"
+    else: # HOLD
         entry_price = round(close, 1)
         stop_loss = round(close - atr_buffer, 1)
         target1 = round(close + atr_buffer, 1)
@@ -270,7 +287,10 @@ def generate_directional_prediction(df, macro_context=None):
     return {
         "score": total_score,
         "signal": signal,
-        "action": rec_action,
+        "signal_jp": signal_jp,
+        "mark": mark,
+        "action": action,
+        "action_jp": action_jp,
         "probability_up": prob_up_pct,
         "probability_down": prob_down_pct,
         "confidence": round(abs(prob_up_pct - 50.0) * 2, 1),

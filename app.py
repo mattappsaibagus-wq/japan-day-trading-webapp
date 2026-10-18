@@ -174,7 +174,10 @@ def api_screener():
                     "rsi": rsi,
                     "score": pred["score"],
                     "signal": pred["signal"],
+                    "signal_jp": pred["signal_jp"],
+                    "mark": pred["mark"],
                     "action": pred["action"],
+                    "action_jp": pred["action_jp"],
                     "prob_up": pred["probability_up"],
                     "prob_down": pred["probability_down"],
                     "setup": pred["setup"]
@@ -191,6 +194,11 @@ def api_screener():
     # Apply cap filter if requested
     if cap_filter != "all":
         data = [d for d in data if d["cap"].lower() == cap_filter]
+
+    # Apply action filter if requested (BUY, HOLD, SELL)
+    action_filter = request.args.get("action", "all").upper()
+    if action_filter != "ALL":
+        data = [d for d in data if d["action"].upper() == action_filter]
 
     return jsonify({"stocks": data, "count": len(data)})
 
