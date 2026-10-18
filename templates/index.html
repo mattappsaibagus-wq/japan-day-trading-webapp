@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kabutrader — Japan Day Trading & Predictive Terminal</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Lightweight Charts for professional financial candlestick plotting -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <!-- Top Navigation & Macro Bar -->
+  <header class="top-nav">
+    <div class="logo-group">
+      <div class="terminal-badge">TSE // 東証</div>
+      <div class="app-title">KABUTRADER <span class="tag">DAY TRADING PRO</span></div>
+    </div>
+
+    <!-- Live Macro Tickers -->
+    <div class="macro-bar">
+      <div class="macro-item" id="macro-nikkei">
+        <span class="macro-label">NIKKEI 225</span>
+        <span class="macro-val">--</span>
+        <span class="macro-chg">--%</span>
+      </div>
+      <div class="macro-item" id="macro-usdjpy">
+        <span class="macro-label">USD / JPY</span>
+        <span class="macro-val">--</span>
+        <span class="macro-chg">--%</span>
+      </div>
+      <div class="macro-item" id="macro-regime">
+        <span class="macro-label">MARKET REGIME</span>
+        <span class="badge badge-regime">CALCULATING...</span>
+      </div>
+      <div class="macro-item clock-item">
+        <span class="macro-label">TOKYO (JST)</span>
+        <span class="clock-val" id="jst-clock">--:--:--</span>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <button class="btn btn-refresh" id="btn-refresh" title="Refresh Live Data">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+        <span>REFRESH</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="workspace">
+    <!-- Left Panel: Screener -->
+    <section class="panel screener-panel">
+      <div class="panel-header">
+        <div class="title-with-count">
+          <h2>TSE MARKET SCREENER</h2>
+          <span class="count-pill" id="stock-count">0</span>
+        </div>
+        
+        <!-- Filter Controls -->
+        <div class="screener-controls">
+          <div class="cap-filters">
+            <button class="cap-btn active" data-cap="all">ALL</button>
+            <button class="cap-btn" data-cap="large">LARGE CAP</button>
+            <button class="cap-btn" data-cap="mid">MID CAP</button>
+            <button class="cap-btn" data-cap="small">SMALL / GROWTH</button>
+          </div>
+          
+          <div class="search-bar">
+            <input type="text" id="screener-search" placeholder="Filter or enter code (e.g. 7203, 6920)...">
+            <button id="btn-lookup-custom">SCAN</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Screener Table Container -->
+      <div class="table-container">
+        <table class="screener-table">
+          <thead>
+            <tr>
+              <th>CODE</th>
+              <th>NAME</th>
+              <th>CAP</th>
+              <th class="text-right">PRICE (¥)</th>
+              <th class="text-right">CHANGE</th>
+              <th class="text-center">RVOL</th>
+              <th class="text-center">RSI</th>
+              <th class="text-center">QUANT SIGNAL</th>
+              <th class="text-right">WIN PROB</th>
+            </tr>
+          </thead>
+          <tbody id="screener-tbody">
+            <tr>
+              <td colspan="9" class="loading-state">
+                <div class="spinner"></div>
+                <span>Scanning Tokyo Stock Exchange across Large, Mid & Small Caps...</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right Panel: Day Trading Detail Command Center -->
+    <section class="panel detail-panel" id="detail-panel">
+      <!-- Active Stock Header -->
+      <div class="detail-header">
+        <div class="stock-title-group">
+          <div class="stock-code-badge" id="det-code">7203.T</div>
+          <div>
+            <h1 class="stock-name" id="det-name">Toyota Motor</h1>
+            <div class="stock-sub" id="det-sub">トヨタ自動車 // Automotive // Large Cap</div>
+          </div>
+        </div>
+        <div class="stock-quote-group">
+          <div class="quote-price" id="det-price">¥--</div>
+          <div class="quote-change" id="det-change">-- (0.00%)</div>
+        </div>
+      </div>
+
+      <!-- Day Trading Trade Setup Card -->
+      <div class="trade-card" id="trade-card">
+        <div class="card-badge-row">
+          <div class="signal-tag" id="det-signal">CALCULATING</div>
+          <div class="action-tag" id="det-action">ACTION: WAIT</div>
+          <div class="setup-name" id="det-setup">Evaluating technical confluence...</div>
+        </div>
+
+        <!-- Predictive Probability Meter -->
+        <div class="probability-meter">
+          <div class="prob-labels">
+            <span class="prob-bull">BULLISH ODDS: <strong id="det-prob-up">--%</strong></span>
+            <span class="prob-bear">BEARISH ODDS: <strong id="det-prob-down">--%</strong></span>
+          </div>
+          <div class="meter-bar">
+            <div class="meter-fill" id="det-meter-fill" style="width: 50%;"></div>
+          </div>
+        </div>
+
+        <!-- Order Brackets for Day Traders -->
+        <div class="order-brackets">
+          <div class="bracket-box bracket-entry">
+            <span class="bracket-label">ENTRY TRIGGER</span>
+            <span class="bracket-val" id="det-entry">¥--</span>
+            <span class="bracket-sub">Breakout / VWAP Pullback</span>
+          </div>
+          <div class="bracket-box bracket-stop">
+            <span class="bracket-label">STOP LOSS (1.5x ATR)</span>
+            <span class="bracket-val" id="det-stop">¥--</span>
+            <span class="bracket-sub">Capital Protection</span>
+          </div>
+          <div class="bracket-box bracket-target">
+            <span class="bracket-label">TARGET 1 (1.5R)</span>
+            <span class="bracket-val" id="det-target1">¥--</span>
+            <span class="bracket-sub">Scale 60%</span>
+          </div>
+          <div class="bracket-box bracket-target2">
+            <span class="bracket-label">TARGET 2 (2.6R)</span>
+            <span class="bracket-val" id="det-target2">¥--</span>
+            <span class="bracket-sub">Trail Remainder</span>
+          </div>
+          <div class="bracket-box bracket-rr">
+            <span class="bracket-label">RISK / REWARD</span>
+            <span class="bracket-val" id="det-rr">1:--</span>
+            <span class="bracket-sub">Expected Ratio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Factor Prediction Breakdown & Pivots Grid -->
+      <div class="analytics-grid">
+        <!-- Quant Factors Breakdown -->
+        <div class="card quant-factors">
+          <h3>PREDICTIVE FACTOR MATRIX</h3>
+          <div class="factor-rows">
+            <div class="factor-row">
+              <span class="f-name">Trend Confluence (EMA 9/21/50 + VWAP)</span>
+              <div class="f-bar-wrap"><div class="f-bar" id="f-trend" style="width: 50%;"></div></div>
+              <span class="f-val" id="f-trend-val">+0</span>
+            </div>
+            <div class="factor-row">
+              <span class="f-name">Momentum Velocity (RSI & MACD Acceleration)</span>
+              <div class="f-bar-wrap"><div class="f-bar" id="f-momentum" style="width: 50%;"></div></div>
+              <span class="f-val" id="f-momentum-val">+0</span>
+            </div>
+            <div class="factor-row">
+              <span class="f-name">Volatility & Squeeze (Bollinger %B & ATR)</span>
+              <div class="f-bar-wrap"><div class="f-bar" id="f-volatility" style="width: 50%;"></div></div>
+              <span class="f-val" id="f-volatility-val">+0</span>
+            </div>
+            <div class="factor-row">
+              <span class="f-name">Institutional Volume (Relative Vol RVol)</span>
+              <div class="f-bar-wrap"><div class="f-bar" id="f-volume" style="width: 50%;"></div></div>
+              <span class="f-val" id="f-volume-val">+0</span>
+            </div>
+            <div class="factor-row">
+              <span class="f-name">Japan Macro Tailwind (USD/JPY & Nikkei)</span>
+              <div class="f-bar-wrap"><div class="f-bar" id="f-macro" style="width: 50%;"></div></div>
+              <span class="f-val" id="f-macro-val">+0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Floor Pivots & Intraday Levels -->
+        <div class="card pivots-card">
+          <h3>INTRADAY FLOOR PIVOTS</h3>
+          <div class="pivots-table">
+            <div class="pivot-row r2"><span class="p-lvl">R2 Resistance</span><span class="p-price" id="p-r2">¥--</span></div>
+            <div class="pivot-row r1"><span class="p-lvl">R1 Resistance</span><span class="p-price" id="p-r1">¥--</span></div>
+            <div class="pivot-row p"><span class="p-lvl">P Central Pivot</span><span class="p-price" id="p-p">¥--</span></div>
+            <div class="pivot-row s1"><span class="p-lvl">S1 Support</span><span class="p-price" id="p-s1">¥--</span></div>
+            <div class="pivot-row s2"><span class="p-lvl">S2 Support</span><span class="p-price" id="p-s2">¥--</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart View -->
+      <div class="chart-wrapper">
+        <div class="chart-toolbar">
+          <div class="timeframe-buttons">
+            <button class="tf-btn active" data-tf="15m">15M INTRADAY</button>
+            <button class="tf-btn" data-tf="1d">1D DAILY</button>
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="color-dot bull"></span>Bullish Bar</span>
+            <span class="legend-item"><span class="color-dot bear"></span>Bearish Bar</span>
+          </div>
+        </div>
+        <div id="chart-container" class="chart-canvas"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

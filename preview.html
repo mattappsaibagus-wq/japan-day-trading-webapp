@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      background: #0a0d14;
+      color: #f0f4fc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #232d44;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+    .title {
+      font-weight: 800;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      background: #2a1532;
+      color: #f472b6;
+      border: 1px solid #701a75;
+      font-family: monospace;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .macro {
+      display: flex;
+      gap: 16px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .bull { color: #00d084; }
+    .bear { color: #ff4d6d; }
+    .accent { color: #38bdf8; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .card {
+      background: #111622;
+      border: 1px solid #232d44;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .card h3 {
+      margin: 0 0 8px 0;
+      font-size: 11px;
+      font-family: monospace;
+      color: #8b9bb4;
+      text-transform: uppercase;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: monospace;
+    }
+    th {
+      text-align: left;
+      color: #54647f;
+      padding: 4px 6px;
+      border-bottom: 1px solid #232d44;
+    }
+    td {
+      padding: 5px 6px;
+      border-bottom: 1px solid #161c2b;
+    }
+    .sig-pill {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 3px;
+    }
+    .sig-buy { background: #00d084; color: #000; }
+    .sig-sell { background: #ff4d6d; color: #fff; }
+    .sig-neu { background: #192032; color: #8b9bb4; }
+    .bracket-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">
+      <span class="badge">TSE // 東証</span>
+      KABUTRADER — JAPAN DAY TRADING TERMINAL
+    </div>
+    <div class="macro">
+      <span>NIKKEI: <strong class="bull">65,324 (+1.39%)</strong></span>
+      <span>USD/JPY: <strong class="bull">157.98 (+0.02%)</strong></span>
+      <span>REGIME: <strong class="accent">MILDLY BULLISH</strong></span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Active Screener Top Signals</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>CODE</th>
+            <th>NAME</th>
+            <th>CAP</th>
+            <th>PRICE</th>
+            <th>SIGNAL</th>
+            <th>WIN PROB</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="accent">7267</td>
+            <td>Honda Motor</td>
+            <td>Large</td>
+            <td>¥1,797.5</td>
+            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
+            <td class="bull">94.9%</td>
+          </tr>
+          <tr>
+            <td class="accent">4393</td>
+            <td>Bank of Innov.</td>
+            <td>Small</td>
+            <td>¥7,380.0</td>
+            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
+            <td class="bull">94.9%</td>
+          </tr>
+          <tr>
+            <td class="accent">5032</td>
+            <td>ANYCOLOR</td>
+            <td>Small</td>
+            <td>¥3,225.0</td>
+            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
+            <td class="bull">92.9%</td>
+          </tr>
+          <tr>
+            <td class="accent">5253</td>
+            <td>COVER Corp</td>
+            <td>Small</td>
+            <td>¥1,661.0</td>
+            <td><span class="sig-pill sig-buy">STRONG BUY</span></td>
+            <td class="bull">92.9%</td>
+          </tr>
+          <tr>
+            <td class="accent">6920</td>
+            <td>Lasertec</td>
+            <td>Mid</td>
+            <td>¥41,200.0</td>
+            <td><span class="sig-pill sig-neu">NEUTRAL</span></td>
+            <td>50.0%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Active Trade Setup — Honda Motor (7267.T)</h3>
+      <div style="font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #fff;">
+        Setup: Bullish Momentum Breakout (VWAP & EMA9 Trail)
+      </div>
+      <div class="bracket-row">
+        <span>Action:</span>
+        <strong class="bull">LONG</strong>
+      </div>
+      <div class="bracket-row">
+        <span>Entry Trigger:</span>
+        <strong class="accent">¥1,797.5</strong>
+      </div>
+      <div class="bracket-row">
+        <span>Stop Loss (1.5x ATR):</span>
+        <strong class="bear">¥1,760.8</strong>
+      </div>
+      <div class="bracket-row">
+        <span>Target 1 (1.5R):</span>
+        <strong class="bull">¥1,852.6</strong>
+      </div>
+      <div class="bracket-row">
+        <span>Target 2 (2.6R):</span>
+        <strong class="bull">¥1,892.9</strong>
+      </div>
+      <div class="bracket-row">
+        <span>Risk / Reward:</span>
+        <strong style="color: #fbbf24;">1:1.50</strong>
+      </div>
+      <div style="margin-top: 10px; font-size: 10px; color: #8b9bb4; border-top: 1px solid #232d44; padding-top: 6px;">
+        Webapp actively running on <code>http://127.0.0.1:5000</code>. Includes interactive TradingView candles, floor pivots, and live TSE scanning.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
