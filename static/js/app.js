@@ -194,9 +194,9 @@ async function loadScreener() {
       const sigKey = s.signal.toLowerCase().replace(" ", "-");
       const rvolClass = s.rvol >= 1.4 ? "rvol-surge" : "";
 
-      // Authentic Japanese mark
+      // Authentic Japanese mark + bilingual label
       const mark = s.mark || (s.signal.includes("BUY") ? "○" : (s.signal.includes("SELL") ? "▼" : "△"));
-      const sigText = s.signal_jp || s.signal;
+      const sigText = `${s.signal_jp || s.signal} / ${s.signal}`;
 
       tr.innerHTML = `
         <td class="cell-code">${s.code}</td>
@@ -286,10 +286,11 @@ function renderStockDetails(data) {
   const sigKey = pred.signal.toLowerCase().replace(" ", "-");
   sigTag.className = `signal-tag badge-sig ${sigKey}`;
   markEl.textContent = pred.mark || "―";
-  sigTextEl.textContent = pred.signal_jp || pred.signal;
+  sigTextEl.textContent = `${pred.signal_jp || pred.signal} / ${pred.signal}`;
 
   const actTag = document.getElementById("det-action");
-  actTag.textContent = pred.action_jp || `アクション: ${pred.action}`;
+  const jpAction = pred.action_jp || pred.action;
+  actTag.textContent = `${jpAction} (${pred.action})`;
   
   if (pred.action === "BUY") {
     actTag.style.background = "var(--buy)";

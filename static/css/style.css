@@ -82,6 +82,17 @@ body {
   gap: 12px;
 }
 
+.disclaimer-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  font-size: 9px;
+}
+
+.disclaimer-jp { color: var(--muted); }
+.disclaimer-en { color: var(--faint); }
+
 .terminal-badge {
   background: rgba(0, 224, 184, 0.12);
   color: var(--brand);
