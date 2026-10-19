@@ -669,25 +669,6 @@ body {
   .agent-badge-row {
     justify-content: center;
   }
-  .screener-table, .screener-table th, .screener-table td {
-    font-size: 0.95em !important;
-    padding: 0.25em 0.2em !important;
-    white-space: nowrap;
-  }
-  .trade-card, .card, .pivots-card {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    min-width: 0;
-    border-radius: 0;
-    margin-left: -1em;
-    margin-right: -1em;
-  }
-  .main-app, .main-content, .side-detail {
-    min-width: 0;
-    padding-left: 0.2em;
-    padding-right: 0.2em;
-    box-sizing: border-box;
-  }
 }
 
 .quote-price {
@@ -1140,3 +1121,58 @@ body {
 .disclaimer-banner { flex: 1 1 320px; min-width: 0; }
 .table-container { overflow-x: auto; }
 .screener-table td, .screener-table th { white-space: nowrap; }
+
+/* Phones and narrow tablets: one scrolling page instead of the fixed two-pane terminal */
+@media (max-width: 900px) {
+  body { height: auto; min-height: 100vh; overflow-x: hidden; overflow-y: visible; }
+  .workspace { display: flex; flex-direction: column; overflow: visible; }
+  .panel { overflow: visible; }
+  .screener-panel { border-right: none; border-bottom: 1px solid var(--border-strong); }
+  .table-container { flex: none; max-height: 60vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .detail-panel { overflow: visible; padding: 12px; }
+  .order-brackets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .top-nav { padding: 8px 12px; gap: 6px 12px; }
+  .disclaimer-banner { margin-left: 0; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 10px; }
+  .disclaimer-en { margin-left: 0 !important; }
+  .macro-bar { gap: 6px 14px; font-size: 12px; }
+  .top-actions { width: 100%; }
+  .top-actions .btn { flex: 1; justify-content: center; min-height: 40px; }
+
+  .panel-header { padding: 10px 12px; }
+  .filter-row { align-items: flex-start; }
+  .filter-heading { padding-top: 8px; min-width: 48px; }
+  .action-filters, .cap-filters { flex-wrap: wrap; }
+  .act-btn, .cap-btn { min-height: 34px; }
+  /* 16px inputs stop iOS Safari zooming the page on focus */
+  .search-bar input, .sizing-inputs input { font-size: 16px; }
+  .search-bar button { white-space: nowrap; }
+
+  /* Keep code, name, price, change, signal and hit rate; drop the rest on phones */
+  .screener-table th:nth-child(3), .screener-table td:nth-child(3),
+  .screener-table th:nth-child(6), .screener-table td:nth-child(6),
+  .screener-table th:nth-child(7), .screener-table td:nth-child(7),
+  .screener-table th:nth-child(8), .screener-table td:nth-child(8),
+  .screener-table th:nth-child(9), .screener-table td:nth-child(9) { display: none; }
+  .screener-table th, .screener-table td { padding: 9px 4px; }
+  .screener-table td:nth-child(2) { max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
+  .screener-table .cell-name, .screener-table .cell-en { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+  .stock-name-row { flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
+  .stock-name { font-size: 18px; }
+  .stock-title-group { justify-content: center; }
+  .card-badge-row { flex-wrap: wrap; }
+  .prob-labels { flex-wrap: wrap; gap: 4px 10px; }
+  .order-brackets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bracket-rr { grid-column: 1 / -1; }
+  .sizing-inputs { flex-direction: column; }
+  .sizing-inputs label { flex: none; width: 100%; }
+  .sizing-inputs input { width: 100%; }
+  .sig-en { display: none; }
+  .factor-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px; }
+  .chart-canvas { height: 280px; }
+  .chart-toolbar { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .timeframe-buttons, .chart-legend { flex-wrap: wrap; }
+}
