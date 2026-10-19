@@ -1152,13 +1152,12 @@ body {
 .doctor-detail { color: var(--text); }
 .doctor-foot { margin-top: 6px; font-size: 10px; color: var(--faint); line-height: 1.5; }
 
-/* Kronos next-session forecast */
+/* Kronos next-hour forecast */
 .kronos-badge { border-style: dashed; }
 .kronos-tag {
   margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 0.7em;
   background: #ff2d55; color: #fff; font-family: var(--font-sans);
 }
-.kronos-note { margin: -4px 0 12px; font-size: 10px; color: var(--faint); line-height: 1.5; }
 .kronos-chip {
   align-self: flex-start; margin-top: 2px; padding: 0 6px; border-radius: 999px;
   font-family: var(--font-mono); font-size: 9px; font-weight: 800; border: 1px solid currentColor;

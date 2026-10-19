@@ -265,7 +265,7 @@ def api_stock_detail(symbol):
 
 @app.route("/api/kronos")
 def api_kronos():
-    """Kronos next-session forecasts from the stock-scanner pipeline (it refreshes a few times a day)."""
+    """Kronos next-hour forecasts from this repo's Kronos job (it refreshes every 30 min in TSE hours)."""
     c = CACHE["kronos"]
     if c["data"] is None or time.time() - c["timestamp"] > 1800:
         c["data"], c["timestamp"] = kronos_feed.fetch(), time.time()

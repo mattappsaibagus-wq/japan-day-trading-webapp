@@ -20,6 +20,7 @@ A quantitative day trading terminal and market screener specialized for the Toky
   - **VWAP**: position vs. session VWAP (resets every morning) and its ±1σ/±2σ bands.
   - **Macro**: Nikkei 225 + USD/JPY, scaled per stock by FX sensitivity (exporters vs. domestic).
   - Agent weights are hand-set and every agent explains its score in the UI.
+  - **Kronos** ([shiyu-coder/Kronos](https://github.com/shiyu-coder/Kronos), Kronos-small): forecasts the next hour (4 × 15m bars) from 8 sampled paths per stock. It runs in GitHub Actions every 30 min during TSE hours (`.github/workflows/kronos.yml`) and publishes to the `kronos-data` branch, which the app reads. Shown in the agent row but **not** in the score until it has been backtested.
   - **Probability is measured, not invented**: the "上昇確率" column stays *未検証 (uncalibrated)* until you run `backtest.py`, which records how often price actually rose after each score bucket.
 
 - **Day-Trader Execution & Risk**:
@@ -67,6 +68,8 @@ japan-day-trading-webapp/
 ├── agents/            # Trend / Momentum / Breakout / VWAP / Macro scoring agents
 ├── market_rules.py    # Tick sizes, price limits, position sizing, JPX calendar
 ├── data_provider.py   # Market data source (Yahoo; swap for a real-time feed)
+├── kronos_intraday.py # Runs Kronos next-hour forecasts (GitHub Actions job)
+├── kronos_feed.py     # Reads the published Kronos forecasts for the app
 ├── backtest.py        # Walk-forward backtest + probability calibration
 ├── tests/             # pytest suite (synthetic data, no network needed)
 ├── universe.py        # Stock catalog across Large, Mid, and Small caps

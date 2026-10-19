@@ -35,8 +35,8 @@ function probCellHtml(s) {
   return `<span class="${cls}" title="${title}">${s.prob_signal}%</span>`;
 }
 
-// Kronos: next-session forecasts from the stock-scanner (kaitoisland) pipeline, shown apart
-// from the intraday agents because they are daily forecasts on a different horizon.
+// Kronos: next-hour forecasts (4 x 15m bars) from this repo's own Kronos job. Shown in the
+// agent row but kept out of the score until they have been backtested.
 async function loadKronos() {
   try {
     const res = await fetch("/api/kronos");
@@ -47,43 +47,41 @@ async function loadKronos() {
 }
 
 function kronosMove(k) {
-  return `${k.direction === "up" ? "▲ +" : "▼ "}${Math.abs(k.expected_move_pct)}%`;
+  const arrow = k.direction === "up" ? "▲" : k.direction === "down" ? "▼" : "→";
+  const v = k.expected_move_pct;
+  return `${arrow} ${v > 0 ? "+" : ""}${v}%`;
+}
+
+function kronosColor(k) {
+  return k.direction === "up" ? "var(--buy)" : k.direction === "down" ? "var(--sell)" : "#aaa";
+}
+
+function jstTime(iso) {
+  return iso ? new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric",
+    day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "--";
+}
+
+function kronosTitle(k) {
+  const agree = k.path_agreement != null ? `${Math.round(k.path_agreement * 100)}%` : "--";
+  const range = Array.isArray(k.range_pct) ? `${k.range_pct[0]}% 〜 ${k.range_pct[1]}%` : "--";
+  return `Kronos 1時間先予測 (${jstTime(k.target_bar)} の足まで) · パス一致 ${agree} · レンジ ${range} · ` +
+    `${jstTime(kronosFeed.generated_at)} JST 更新 · スコアには含めていません`;
 }
 
 function kronosChipHtml(symbol) {
   const k = (kronosFeed.forecasts || {})[symbol];
-  if (!k) return "";
-  return `<span class="kronos-chip ${k.direction}" title="Kronos 翌営業日予測 (${esc(k.target_date)})">K ${kronosMove(k)}</span>`;
+  if (!k || k.direction === "flat") return "";
+  return `<span class="kronos-chip ${k.direction}" title="${esc(kronosTitle(k))}">K ${kronosMove(k)}</span>`;
 }
 
-function kronosAsOf() {
-  return kronosFeed.generated_at
-    ? new Date(kronosFeed.generated_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric",
-        day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " JST"
-    : "--";
-}
-
-// Badge for the agent row: same look as the intraday agents, tagged 翌日 because it is a
-// next-session forecast and is not part of the intraday score.
+// Badge for the agent row, tagged 1h: it forecasts the next hour and is not part of the score.
 function kronosBadgeHtml(symbol) {
   const k = (kronosFeed.forecasts || {})[symbol];
   const val = k
-    ? `<span style="color:${k.direction === "up" ? "var(--buy)" : "var(--sell)"};font-weight:bold">${kronosMove(k)}</span>`
+    ? `<span style="color:${kronosColor(k)};font-weight:bold">${kronosMove(k)}</span>`
     : `<span style="color:#aaa;font-weight:bold">n/a</span>`;
-  return `<span class="agent-badge kronos-badge" data-agent="kronos" title="Kronos 翌営業日予測 (kaitoisland)">KRONOS ${val}<span class="kronos-tag">翌日</span></span>`;
-}
-
-function renderKronos(symbol) {
-  const note = document.getElementById("kronos-box");
-  const k = (kronosFeed.forecasts || {})[symbol];
-  if (!k) {
-    note.textContent = `KRONOS: この銘柄の翌日予測なし (kaitoisland の対象外、または予測パスが一致せず見送り) · ${kronosAsOf()} 更新`;
-    return;
-  }
-  const range = Array.isArray(k.range_pct) ? `${k.range_pct[0]}% 〜 ${k.range_pct[1]}%` : "--";
-  const agree = k.path_agreement != null ? `${Math.round(k.path_agreement * 100)}%` : "--";
-  note.textContent = `KRONOS 翌日予測: ${k.target_date} 終値 ${kronosMove(k)} · レンジ ${range} · パス一致 ${agree} · ` +
-    `出典 kaitoisland (${k.model}) · ${kronosAsOf()} 更新 · 日中スコアには含めていません`;
+  const title = k ? kronosTitle(k) : "Kronos 1時間先予測: この銘柄の予測なし";
+  return `<span class="agent-badge kronos-badge" data-agent="kronos" title="${esc(title)}">KRONOS ${val}<span class="kronos-tag">1h</span></span>`;
 }
 
 function esc(v) {
@@ -330,7 +328,7 @@ async function loadScreener() {
 // from the timestamps the API returns. Re-checked every minute against the clock.
 const doctor = { screener: null, detail: null };
 const FEED_DELAY_MIN = 20;
-const KRONOS_MAX_AGE_H = 36;
+const KRONOS_MAX_LAG_MIN = 90;  // Kronos job runs every 30 min in TSE hours (cron can lag)
 
 function jstParts(ms) {
   const d = new Date(ms + 9 * 3600e3);
@@ -390,10 +388,10 @@ function runDoctor() {
   }
   const kGen = kronosFeed.generated_at ? Date.parse(kronosFeed.generated_at) : null;
   if (!kGen) {
-    checks.push({ level: "warn", name: "Kronos", detail: "予測データなし (kaitoisland から取得できず)" });
+    checks.push({ level: "warn", name: "Kronos", detail: "予測データなし (Kronos ジョブから取得できず)" });
   } else {
     const n = Object.keys(kronosFeed.forecasts || {}).length;
-    const old = now - kGen > KRONOS_MAX_AGE_H * 3600e3;
+    const old = kGen < expectedLatestBar(now) - KRONOS_MAX_LAG_MIN * 60e3;
     checks.push({ level: old ? "warn" : "ok", name: "Kronos",
       detail: `${fmtJstShort(kGen)} 更新 (${fmtAge(now - kGen)}) · ${n} 銘柄${old ? " · 古い予測です" : ""}` });
   }
@@ -525,8 +523,6 @@ function renderStockDetails(data) {
     const color = a.score > 0 ? "var(--buy)" : (a.score < 0 ? "var(--sell)" : "#aaa");
     return `<span class="agent-badge" data-agent="${esc(a.agent)}">${esc(a.agent.toUpperCase())} <span style="color:${color};font-weight:bold">${a.active ? (a.score > 0 ? "+" : "") + a.score : "n/a"}</span></span>`;
   }).join(" ") + " " + kronosBadgeHtml((data.meta && data.meta.symbol) || currentSymbol);
-
-  renderKronos((data.meta && data.meta.symbol) || currentSymbol);
 
   // Agent breakdown with reasons
   document.getElementById("agent-rows").innerHTML = agentList.map(a => {
