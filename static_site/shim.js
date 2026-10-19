@@ -85,13 +85,14 @@
     return realFetch(input, init);
   };
 
-  // Snapshot banner: the data is frozen at build time, and the signals have no measured edge
-  document.addEventListener("DOMContentLoaded", async () => {
-    const s = await snapshot();
-    const bar = document.createElement("div");
-    bar.style.cssText = "background:#3a2a00;color:#ffd27a;padding:8px 16px;font-size:13px;line-height:1.5;text-align:center;border-bottom:1px solid #6b4e00";
-    bar.textContent = `静的スナップショット版: データは ${fmtJst(s.last_bar)} JST 時点のYahoo遅延データで、自動更新されません。` +
-      "バックテストでは取引コストを上回る優位性は確認されていません。実際の売買には使わないでください。";
-    document.body.prepend(bar);
+  // Snapshot notice: the data is frozen at build time, and the signals have no measured edge.
+  // Added to the disclaimer box; the snapshot time itself shows in the session pill.
+  document.addEventListener("DOMContentLoaded", () => {
+    const box = document.querySelector(".disclaimer-banner");
+    if (!box) return;
+    const note = document.createElement("span");
+    note.className = "disclaimer-snap";
+    note.textContent = "※ 静的スナップショット版 (自動更新なし)。バックテストでは取引コストを上回る優位性は未確認のため、実際の売買には使わないでください。";
+    box.appendChild(note);
   });
 })();
