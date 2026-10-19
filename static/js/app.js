@@ -313,6 +313,13 @@ function renderStockDetails(data) {
   document.getElementById("det-prob-down").textContent = `${pred.probability_down}%`;
   document.getElementById("det-confidence").textContent = `${pred.confidence}%`;
   document.getElementById("det-meter-fill").style.width = `${pred.probability_up}%`;
+  // AGENT BADGE ROW (EN labels only)
+  const agentList = Array.isArray(pred.agents) ? pred.agents : [];
+  const badgeRow = document.getElementById('agent-badge-row');
+  badgeRow.innerHTML = agentList.map(a => {
+    const color = a.score > 0 ? 'var(--buy)' : (a.score < 0 ? 'var(--sell)' : '#aaa');
+    return `<span class="agent-badge" data-agent="${a.agent}">${a.agent.toUpperCase()} <span style="color:${color};font-weight:bold">${a.score > 0 ? '+' : ''}${a.score}</span></span>`;
+  }).join(' ');
 
   // Order Execution Brackets
   document.getElementById("det-entry").textContent = `¥${pred.entry_price.toLocaleString()}`;

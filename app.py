@@ -178,6 +178,7 @@ def api_screener():
                     "mark": pred["mark"],
                     "action": pred["action"],
                     "action_jp": pred["action_jp"],
+                    "action_en": pred["signal"],  # BUY/SELL/HOLD for filtering
                     "prob_up": pred["probability_up"],
                     "prob_down": pred["probability_down"],
                     "setup": pred["setup"]
@@ -198,7 +199,7 @@ def api_screener():
     # Apply action filter if requested (BUY, HOLD, SELL)
     action_filter = request.args.get("action", "all").upper()
     if action_filter != "ALL":
-        data = [d for d in data if d["action"].upper() == action_filter]
+        data = [d for d in data if d["action_en"] == action_filter]
 
     return jsonify({"stocks": data, "count": len(data)})
 
@@ -275,4 +276,4 @@ def api_stock_detail(symbol):
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=True)

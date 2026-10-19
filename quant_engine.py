@@ -1,6 +1,6 @@
 """
 Quantitative Analysis & Predictive Signal Engine for Japan Stocks
-Calculates technical indicators, multi-factor directional scores, pivot levels, and day-trading setups.
+Calculates technical indicators, multi-agent directional scores, pivot levels, and day-trading setups.
 """
 
 import math
@@ -8,6 +8,14 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+
+# Import agents
+from agents.kronos_agent import KronosAgent
+from agents.trend_agent import TrendAgent
+from agents.momentum_agent import MomentumAgent
+from agents.breakout_agent import BreakoutAgent
+from agents.macro_agent import MacroAgent
+from agents.fusion import AgentFusion
 
 def clean_series(s):
     if isinstance(s, pd.DataFrame):
@@ -99,23 +107,36 @@ def calculate_pivot_points(prev_high, prev_low, prev_close):
 
 def generate_directional_prediction(df, macro_context=None):
     """
-    Multi-Factor Quantitative Predictive Model:
-    Evaluates Trend (30%), Momentum (25%), Volatility/Breakout (20%), Volume (15%), and Macro (10%).
+    Multi-Agent Quantitative Predictive Model:
+    Uses Kronos, Trend, Momentum, Breakout, and Macro agents to generate signals.
+    Kronos agent is weighted highest for day/overnight prediction.
     Returns:
-      - score: -100 to +100
-      - signal: STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL
+      - score: -100 to +100 (fused agent score)
+      - signal: STRONG BUY / BUY / HOLD / SELL / STRONG SELL
       - probability_up: e.g. 74.2%
+      - agents: individual agent outputs
       - setup: Day trade playbook recommendation
     """
     if df is None or len(df) < 5:
         return {
             "score": 0,
-            "signal": "NEUTRAL",
-            "confidence": 50.0,
+            "signal": "HOLD",
+            "signal_jp": "様子見",
+            "mark": "△",
+            "action": "HOLD",
+            "action_jp": "様子見 / 保有",
             "probability_up": 50.0,
             "probability_down": 50.0,
+            "confidence": 0.0,
+            "agents": [],
+            "setup": "Insufficient Data",
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target1": 0.0,
+            "target2": 0.0,
+            "risk_reward": "1:0.0",
             "factors": {},
-            "setup": "Insufficient Data"
+            "indicators": {}
         }
 
     latest = df.iloc[-1]
@@ -137,126 +158,69 @@ def generate_directional_prediction(df, macro_context=None):
     rvol = float(latest['RVol'])
     vwap = float(latest['VWAP'])
 
-    # 1. Trend Factor (-30 to +30)
-    trend_score = 0
-    if ema9 > ema21 > ema50:
-        trend_score += 20  # Bullish moving average stack
-    elif ema9 < ema21 < ema50:
-        trend_score -= 20  # Bearish moving average stack
-    elif ema9 > ema21:
-        trend_score += 10
-    else:
-        trend_score -= 10
+    # Prepare features for agents
+    features = {
+        'close': close,
+        'ema9': ema9,
+        'ema21': ema21,
+        'ema50': ema50,
+        'rsi': rsi,
+        'macd': macd,
+        'macd_signal': macd_signal,
+        'macd_hist': macd_hist,
+        'bb_upper': bb_upper,
+        'bb_lower': bb_lower,
+        'bb_pct_b': bb_pct_b,
+        'atr': atr,
+        'rvol': rvol,
+        'vwap': vwap,
+        'prev_close': float(prev['Close']),
+    }
 
-    if close > vwap:
-        trend_score += 10
-    else:
-        trend_score -= 10
-
-    # 2. Momentum Factor (-25 to +25)
-    momentum_score = 0
-    # RSI evaluation
-    if 50 <= rsi <= 68:
-        momentum_score += 12  # Healthy bullish momentum
-    elif rsi > 75:
-        momentum_score -= 5   # Overbought caution for day trading
-    elif 32 <= rsi < 50:
-        momentum_score -= 10  # Bearish drift
-    elif rsi < 28:
-        momentum_score += 10  # Oversold bounce candidate
-
-    # MACD histogram acceleration
-    if macd > macd_signal:
-        momentum_score += 8
-        if macd_hist > prev_macd_hist:
-            momentum_score += 5  # Accelerating
-    else:
-        momentum_score -= 8
-        if macd_hist < prev_macd_hist:
-            momentum_score -= 5
-
-    # 3. Volatility & Breakout Factor (-20 to +20)
-    vol_score = 0
-    if bb_pct_b > 0.8:
-        vol_score += 12  # Pushing upper band
-    elif bb_pct_b < 0.2:
-        vol_score -= 12  # Pushing lower band
-    else:
-        vol_score += 0
-
-    # 4. Volume Factor (-15 to +15)
-    # High volume reinforces the dominant direction
-    volume_score = 0
-    preliminary_direction = 1 if (trend_score + momentum_score) > 0 else -1
-    if rvol >= 1.8:
-        volume_score = preliminary_direction * 15
-    elif rvol >= 1.2:
-        volume_score = preliminary_direction * 10
-    elif rvol < 0.8:
-        volume_score = -preliminary_direction * 5  # Low volume divergence
-
-    # 5. Macro Factor (-10 to +10)
-    macro_score = 0
+    # Add macro context if provided
     if macro_context:
-        nikkei_change = macro_context.get("nikkei_change_pct", 0)
-        usdjpy_change = macro_context.get("usdjpy_change_pct", 0)
-        
-        # Nikkei alignment
-        if nikkei_change > 0.5:
-            macro_score += 5
-        elif nikkei_change < -0.5:
-            macro_score -= 5
-            
-        # USDJPY export tailwind
-        if usdjpy_change > 0.3:
-            macro_score += 5
-        elif usdjpy_change < -0.3:
-            macro_score -= 5
+        features.update({
+            'nikkei_chg': macro_context.get("nikkei_change_pct", 0.0),
+            'usdjpy_chg': macro_context.get("usdjpy_change_pct", 0.0),
+        })
 
-    total_score = trend_score + momentum_score + vol_score + volume_score + macro_score
-    total_score = max(-100, min(100, total_score))
+    # Initialize agents and run fusion
+    fusion = AgentFusion([
+        KronosAgent(weight=1.0),      # Kronos gets highest weight for day trading
+        TrendAgent(weight=0.6),
+        MomentumAgent(weight=0.6),
+        BreakoutAgent(weight=0.5),
+        MacroAgent(weight=0.4),
+    ])
 
-    # Convert to Win Probability via Sigmoid with center at 50%
-    prob_up = 1.0 / (1.0 + math.exp(-total_score / 28.0))
-    prob_up_pct = round(prob_up * 100, 1)
-    prob_down_pct = round(100.0 - prob_up_pct, 1)
+    result = fusion.run_all(features)
 
-    # Classify Signal with authentic Japanese market marks
-    if total_score >= 45:
-        signal = "STRONG BUY"
-        signal_jp = "強い買い"
-        mark = "◎"
-        action = "BUY"
-        action_jp = "買いエントリー"
+    # Format result to match existing API
+    signal = result['final_signal']
+    signal_jp = result['final_signal_jp']
+    action = result['final_action']
+    mark = result['final_mark']
+    score = result['final_score']
+    probability_up = result['probability_up']
+    probability_down = result['probability_down']
+    confidence = result['confidence']
+
+    # Setup text based on final signal (keeping some of the original setup logic)
+    if signal == "STRONG BUY":
         setup = "順張りブレイクアウト（VWAP＆EMA9押し目追随）"
-    elif total_score >= 15:
-        signal = "BUY"
-        signal_jp = "買い"
-        mark = "○"
-        action = "BUY"
-        action_jp = "押し目買い"
+        action_jp = "買いエントリー"
+    elif signal == "BUY":
         setup = "サポレジ押し目買い / EMA21リバウンド狙い"
-    elif total_score <= -45:
-        signal = "STRONG SELL"
-        signal_jp = "強い売り"
-        mark = "×"
-        action = "SELL"
-        action_jp = "空売りエントリー"
+        action_jp = "押し目買い"
+    elif signal == "STRONG SELL":
         setup = "下値支持線ブレイクダウン / EMA9下落追随"
-    elif total_score <= -15:
-        signal = "SELL"
-        signal_jp = "売り"
-        mark = "▼"
-        action = "SELL"
-        action_jp = "戻り売り"
+        action_jp = "空売りエントリー"
+    elif signal == "SELL":
         setup = "戻り高値売り / VWAP・レジスタンス反落"
-    else:
-        signal = "HOLD"
-        signal_jp = "様子見"
-        mark = "△"
-        action = "HOLD"
-        action_jp = "様子見 / 保有"
+        action_jp = "戻り売り"
+    else:  # HOLD
         setup = "保ち合いレンジ相場 — ブレイクアウト待機"
+        action_jp = "様子見 / 保有"
 
     # Day Trading Execution Plan (ATR-based dynamic brackets)
     atr_buffer = max(atr * 1.2, close * 0.005)
@@ -284,16 +248,29 @@ def generate_directional_prediction(df, macro_context=None):
         target2 = round(close + (atr_buffer * 2.0), 1)
         rr_ratio = 1.0
 
+    # Return formatted result
+    # Map signal to English action code for API filtering
+    signal_to_action = {
+        "STRONG BUY": "BUY",
+        "BUY": "BUY",
+        "HOLD": "HOLD",
+        "SELL": "SELL",
+        "STRONG SELL": "SELL"
+    }
+    action_en = signal_to_action.get(signal, "HOLD")
+    
     return {
-        "score": total_score,
+        "score": score,
         "signal": signal,
         "signal_jp": signal_jp,
         "mark": mark,
         "action": action,
         "action_jp": action_jp,
-        "probability_up": prob_up_pct,
-        "probability_down": prob_down_pct,
-        "confidence": round(abs(prob_up_pct - 50.0) * 2, 1),
+        "action_en": action_en,  # English action code for filtering
+        "probability_up": probability_up,
+        "probability_down": probability_down,
+        "confidence": confidence,
+        "agents": result['agents'],  # Include individual agent outputs
         "setup": setup,
         "entry_price": entry_price,
         "stop_loss": stop_loss,
@@ -301,11 +278,12 @@ def generate_directional_prediction(df, macro_context=None):
         "target2": target2,
         "risk_reward": f"1:{rr_ratio}",
         "factors": {
-            "trend": trend_score,
-            "momentum": momentum_score,
-            "volatility": vol_score,
-            "volume": volume_score,
-            "macro": macro_score
+            # Keep the old factors structure for compatibility, but now from agents
+            "kronos": next((a['score'] for a in result['agents'] if a['agent'] == 'kronos'), 0),
+            "trend": next((a['score'] for a in result['agents'] if a['agent'] == 'trend'), 0),
+            "momentum": next((a['score'] for a in result['agents'] if a['agent'] == 'momentum'), 0),
+            "breakout": next((a['score'] for a in result['agents'] if a['agent'] == 'breakout'), 0),
+            "macro": next((a['score'] for a in result['agents'] if a['agent'] == 'macro'), 0),
         },
         "indicators": {
             "close": close,
