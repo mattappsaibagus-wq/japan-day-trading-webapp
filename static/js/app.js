@@ -15,6 +15,7 @@ let volumeSeries = null;
 let cachedCandles = [];
 let cachedDetail = null;
 let marketSession = { state: "closed" };
+let kronosFeed = { forecasts: {} };
 
 // Scanner probability cell: how often the signal's own direction was right, coloured by
 // its edge over the base rate (not by whether P(up) is above 50%).
@@ -32,6 +33,49 @@ function probCellHtml(s) {
   const title = (edge === null || edge === undefined) ? "基準確率なし"
     : `基準比 ${edge > 0 ? "+" : ""}${edge}pt (±${EDGE_PP}pt 未満は優位性なし)`;
   return `<span class="${cls}" title="${title}">${s.prob_signal}%</span>`;
+}
+
+// Kronos: next-session forecasts from the stock-scanner (kaitoisland) pipeline, shown apart
+// from the intraday agents because they are daily forecasts on a different horizon.
+async function loadKronos() {
+  try {
+    const res = await fetch("/api/kronos");
+    if (res.ok) kronosFeed = await res.json();
+  } catch (err) {
+    console.warn("Kronos feed unavailable:", err);
+  }
+}
+
+function kronosMove(k) {
+  return `${k.direction === "up" ? "▲ +" : "▼ "}${Math.abs(k.expected_move_pct)}%`;
+}
+
+function kronosChipHtml(symbol) {
+  const k = (kronosFeed.forecasts || {})[symbol];
+  if (!k) return "";
+  return `<span class="kronos-chip ${k.direction}" title="Kronos 翌営業日予測 (${esc(k.target_date)})">K ${kronosMove(k)}</span>`;
+}
+
+function renderKronos(symbol) {
+  const box = document.getElementById("kronos-box");
+  const k = (kronosFeed.forecasts || {})[symbol];
+  const asOf = kronosFeed.generated_at
+    ? new Date(kronosFeed.generated_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric",
+        day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " JST"
+    : "--";
+  if (!k) {
+    box.className = "kronos-box none";
+    box.innerHTML = `<span class="kronos-title">KRONOS 翌日予測</span>
+      <span class="kronos-main">この銘柄の予測なし</span>
+      <span class="kronos-note">kaitoisland の対象外、または予測パスが一致せず見送り · ${esc(asOf)} 更新</span>`;
+    return;
+  }
+  const range = Array.isArray(k.range_pct) ? `${k.range_pct[0]}% 〜 ${k.range_pct[1]}%` : "--";
+  const agree = k.path_agreement != null ? `${Math.round(k.path_agreement * 100)}%` : "--";
+  box.className = `kronos-box ${k.direction}`;
+  box.innerHTML = `<span class="kronos-title">KRONOS 翌日予測 <span class="kronos-target">${esc(k.target_date)} 終値</span></span>
+    <span class="kronos-main">${kronosMove(k)}</span>
+    <span class="kronos-note">予測レンジ ${esc(range)} · パス一致 ${esc(agree)} · 出典 kaitoisland (${esc(k.model)}) · ${esc(asOf)} 更新 · 日中スコアには含めていません</span>`;
 }
 
 function esc(v) {
@@ -231,7 +275,7 @@ async function loadScreener() {
         <td>
           <div class="cell-name-box">
             <span class="cell-name">${esc(s.name_jp)}${limitFlag}</span>
-            <span class="cell-en">${esc(s.name)}</span>
+            <span class="cell-en">${esc(s.name)}</span>${kronosChipHtml(s.symbol)}
           </div>
         </td>
         <td><span class="cap-tag ${esc(s.cap)}">${s.cap === 'Large' ? 'プライム大型' : (s.cap === 'Mid' ? '中型主力' : 'グロース')}</span></td>
@@ -378,6 +422,8 @@ function renderStockDetails(data) {
     const color = a.score > 0 ? "var(--buy)" : (a.score < 0 ? "var(--sell)" : "#aaa");
     return `<span class="agent-badge" data-agent="${esc(a.agent)}">${esc(a.agent.toUpperCase())} <span style="color:${color};font-weight:bold">${a.active ? (a.score > 0 ? "+" : "") + a.score : "n/a"}</span></span>`;
   }).join(" ");
+
+  renderKronos((data.meta && data.meta.symbol) || currentSymbol);
 
   // Agent breakdown with reasons
   document.getElementById("agent-rows").innerHTML = agentList.map(a => {
@@ -625,8 +671,11 @@ document.addEventListener("DOMContentLoaded", () => {
   applyColorMode(colorMode);
   loadSession();
   loadMacro();
-  loadScreener();
-  selectStock(currentSymbol);
+  // Kronos forecasts decorate the scanner and detail, so load them first
+  loadKronos().then(() => {
+    loadScreener();
+    selectStock(currentSymbol);
+  });
 
   // Phones: show a "back to list" button while the stock detail is on screen
   const backBtn = document.getElementById("back-to-list");

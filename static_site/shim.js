@@ -49,6 +49,7 @@
       return reply({ state: "closed", label: `スナップショット ${fmtJst(s.last_bar)} 時点`,
         data: { provider: "Yahoo", realtime: false, delay_minutes: 20 } });
     }
+    if (p === "/api/kronos") return realFetch("/snapshot/kronos.json");
     if (p === "/api/macro") return reply((await snapshot()).macro);
     if (p === "/api/screener") {
       const sc = (await snapshot()).screener;

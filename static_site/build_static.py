@@ -7,6 +7,7 @@ is frozen at build time; static_site/shim.js serves it and labels the page as a
 snapshot. Re-run this script and redeploy to refresh.
 
     python static_site/build_static.py [out_dir]
+    python static_site/build_static.py --kronos-only [out_dir]   # refresh Kronos forecasts only
 """
 
 import json
@@ -21,6 +22,7 @@ sys.path.insert(0, ROOT)
 from app import app  # noqa: E402
 from universe import STOCKS_UNIVERSE  # noqa: E402
 from market_rules import JST  # noqa: E402
+import kronos_feed  # noqa: E402
 
 INTERVALS = ("5m", "15m", "1d")
 
@@ -28,6 +30,13 @@ INTERVALS = ("5m", "15m", "1d")
 def get_json(client, url):
     r = client.get(url)
     return r.status_code, r.get_json()
+
+
+def write_kronos(api_dir):
+    feed = kronos_feed.fetch()
+    with open(os.path.join(api_dir, "kronos.json"), "w") as f:
+        json.dump(feed, f, ensure_ascii=False, separators=(",", ":"))
+    print(f"kronos: {len(feed['forecasts'])} forecasts, generated {feed['generated_at']}")
 
 
 def main(out):
@@ -61,6 +70,8 @@ def main(out):
     with open(os.path.join(api, "snapshot.json"), "w") as f:
         json.dump(snapshot, f, ensure_ascii=False, separators=(",", ":"))
 
+    write_kronos(api)
+
     html = client.get("/").get_data(as_text=True)
     html = html.replace('<script src="/static/js/app.js"></script>',
                         '<script src="/static/js/shim.js"></script>\n  <script src="/static/js/app.js"></script>')
@@ -71,4 +82,9 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "dist"))
+    args = sys.argv[1:]
+    if args[:1] == ["--kronos-only"]:
+        # Refresh only the Kronos forecasts in an existing build, keeping its market snapshot
+        write_kronos(os.path.join(args[1] if len(args) > 1 else os.path.join(ROOT, "dist"), "snapshot"))
+    else:
+        main(args[0] if args else os.path.join(ROOT, "dist"))

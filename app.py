@@ -16,6 +16,7 @@ from universe import STOCKS_UNIVERSE, MACRO_ASSETS
 from quant_engine import calculate_indicators, generate_directional_prediction, calculate_pivot_points
 from market_rules import JST, position_size, session_status
 from data_provider import get_provider
+import kronos_feed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("japan-trading-app")
@@ -26,6 +27,7 @@ provider = get_provider()
 CACHE = {
     "macro": {"timestamp": 0, "data": None},
     "screener": {"timestamp": 0, "data": None},
+    "kronos": {"timestamp": 0, "data": None},
 }
 CACHE_TTL_MACRO = 60
 CACHE_TTL_SCREENER = 60
@@ -259,6 +261,15 @@ def api_stock_detail(symbol):
     except Exception as e:
         logger.exception(f"Error fetching stock detail for {sym}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/kronos")
+def api_kronos():
+    """Kronos next-session forecasts from the stock-scanner pipeline (it refreshes a few times a day)."""
+    c = CACHE["kronos"]
+    if c["data"] is None or time.time() - c["timestamp"] > 1800:
+        c["data"], c["timestamp"] = kronos_feed.fetch(), time.time()
+    return jsonify(c["data"])
 
 
 @app.route("/api/position-size")
