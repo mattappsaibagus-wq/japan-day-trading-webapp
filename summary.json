@@ -1,0 +1,1 @@
+{"started_at": "2026-10-19T22:45:56+09:00", "updated_at": "2026-10-19T22:45:56+09:00", "rules": "次の足の始値で入り、4本後 (1時間後) の終値で手仕舞い。片道1ティックのコスト控除。引けをまたぐ取引は除外。", "summary": {"all": {"label": "全体", "trades": 0}, "engine": {"label": "エンジン (BUY/SELL)", "trades": 0}, "kronos": {"label": "Kronos", "trades": 0}}, "open": 0}
