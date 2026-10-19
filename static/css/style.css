@@ -1120,7 +1120,8 @@ body {
 .top-nav { height: auto; min-height: 58px; flex-wrap: wrap; gap: 8px 20px; padding: 8px 20px; }
 .macro-bar { flex-wrap: wrap; gap: 8px 20px; }
 .macro-item { white-space: nowrap; }
-.disclaimer-banner { flex: 1 1 320px; min-width: 0; }
+.disclaimer-banner { flex: 1 1 320px; min-width: 0; flex-wrap: wrap; row-gap: 2px; }
+.disclaimer-snap { color: var(--hold); }
 .table-container { overflow-x: auto; }
 .screener-table td, .screener-table th { white-space: nowrap; }
 
@@ -1210,16 +1211,16 @@ body {
     font-size: 10px; line-height: 1.5; padding: 8px 10px;
     border: 1px solid rgba(245, 181, 68, 0.3); border-radius: 10px; background: rgba(245, 181, 68, 0.06);
   }
-  .disclaimer-en { margin-left: 0 !important; font-weight: 500; }
-  .macro-bar { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+  .disclaimer-banner { gap: 2px; padding: 6px 10px; }
+  .disclaimer-en, .hide-sm { display: none !important; }
+  .macro-bar { width: 100%; display: flex; flex-wrap: wrap; gap: 4px; font-size: 10.5px; }
   .macro-item {
-    gap: 6px; padding: 5px 10px; border-radius: 999px;
+    gap: 4px; padding: 3px 8px; border-radius: 999px;
     background: var(--panel); border: 1px solid var(--border);
   }
-  .macro-item.session-indicator { width: 100%; justify-content: center; }
-  .macro-item .badge { font-size: 10px; }
+  .macro-item .badge { font-size: 9.5px; padding: 1px 5px; }
   .top-actions { width: 100%; }
-  .top-actions .btn { flex: 1; justify-content: center; min-height: 40px; border-radius: 10px; }
+  .top-actions .btn { flex: 1; justify-content: center; min-height: 32px; padding: 4px 8px; border-radius: 10px; font-size: 12px; }
 
   /* Filters: single-line pill rows that scroll sideways instead of overflowing */
   .panel-header { padding: 12px; }

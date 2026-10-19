@@ -328,9 +328,11 @@ async function loadScreener() {
 // and after every Kronos run, and publishes health.json, read live here (not from the
 // snapshot). The browser checks judge the data on this screen from the timestamps the API
 // returns, re-checked every minute. The chip shows the worse of the two.
-const doctor = { screener: null, detail: null, site: null };
+const doctor = { screener: null, detail: null, site: null, paper: null };
 const HEALTH_URL = "https://raw.githubusercontent.com/mattappsaibagus-wq/japan-day-trading-webapp/doctor-status/health.json";
 const HEALTH_MAX_AGE_H = 3;  // the site doctor runs hourly
+// Paper trading results (paper_trader.py): every live call graded after one hour, after costs
+const PAPER_URL = "https://raw.githubusercontent.com/mattappsaibagus-wq/japan-day-trading-webapp/paper-trades/summary.json";
 const FEED_DELAY_MIN = 20;
 const KRONOS_MAX_LAG_MIN = 90;  // Kronos job runs every 30 min in TSE hours (cron can lag)
 
@@ -368,6 +370,12 @@ function fmtJstShort(ms) {
 
 async function loadSiteHealth() {
   try {
+    const pr = await fetch(`${PAPER_URL}?m=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+    if (pr.ok) doctor.paper = await pr.json();
+  } catch (err) {
+    console.warn("Paper trading summary unavailable:", err);
+  }
+  try {
     // raw.githubusercontent caches for a few minutes; bust once a minute at most
     const res = await fetch(`${HEALTH_URL}?m=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
     if (res.ok) doctor.site = await res.json();
@@ -388,6 +396,21 @@ function siteChecks(now) {
   }
   (h.fixes || []).forEach(f => checks.push({ level: "warn", name: "自動修復", detail: `${f.action}: ${f.result}` }));
   return checks;
+}
+
+function paperHtml() {
+  const p = doctor.paper;
+  const head = `<div class="doctor-head doctor-sub">ペーパー取引検証 <span>${p ? `${fmtJstShort(Date.parse(p.started_at))} から · ${fmtJstShort(Date.parse(p.updated_at))} 更新` : "まだ結果がありません"}</span></div>`;
+  if (!p) return head;
+  const rows = ["engine", "kronos"].map(k => {
+    const s = (p.summary || {})[k] || {};
+    if (!s.trades) return { level: "pending", name: s.label || k, detail: "採点済みの取引はまだありません" };
+    const net = s.net_bps;
+    return { level: net > 0 ? "ok" : "warn", name: s.label,
+      detail: `${s.trades} 件 · 的中 ${Math.round(s.hit_rate * 100)}% · コスト後 ${net > 0 ? "+" : ""}${net} bps/件` +
+        (s.day_t != null ? ` (t=${s.day_t}, ${s.days} 日)` : "") };
+  });
+  return head + doctorRows(rows) + `<div class="doctor-foot">${esc(p.rules || "")} 未採点 ${p.open || 0} 件。</div>`;
 }
 
 function doctorRows(checks) {
@@ -444,7 +467,7 @@ function runDoctor() {
   document.getElementById("doctor-panel").innerHTML =
     `<div class="doctor-head">${siteHead}</div>` + doctorRows(site) +
     `<div class="doctor-head doctor-sub">この画面のデータ <span>${fmtJstShort(now)} 確認 · 毎分再チェック</span></div>` +
-    doctorRows(checks) +
+    doctorRows(checks) + paperHtml() +
     `<div class="doctor-foot">OK = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落・停止。</div>`;
 }
 

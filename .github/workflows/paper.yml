@@ -1,0 +1,54 @@
+# Paper trading: records every live BUY/SELL signal and Kronos call during TSE
+# hours and grades each one an hour later (paper_trader.py). The ledger lives on
+# the paper-trades branch; the site reads its summary live.
+name: Paper trading
+
+on:
+  schedule:
+    - cron: "20,50 0-6 * * 1-5"   # 09:20-15:50 JST, weekdays
+    - cron: "15 7 * * 1-5"        # 16:15 JST: grade the last calls of the day
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - paper_trader.py
+      - .github/workflows/paper.yml
+
+concurrency:
+  group: paper
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Load ledger
+        run: |
+          curl -fsS "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/paper-trades/ledger.json" \
+            -o ledger.json || echo '{}' > ledger.json
+
+      - name: Record and grade calls
+        run: python -u paper_trader.py ledger.json
+
+      - name: Publish ledger
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir pub && cp ledger.json summary.json pub/ && cd pub
+          git init -q -b paper-trades
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ledger.json summary.json
+          git commit -q -m "Paper trading ledger"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}" HEAD:paper-trades

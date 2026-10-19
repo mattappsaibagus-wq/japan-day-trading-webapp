@@ -15,7 +15,7 @@ from flask import Flask, render_template, jsonify, request
 from universe import STOCKS_UNIVERSE, MACRO_ASSETS
 from quant_engine import calculate_indicators, generate_directional_prediction, calculate_pivot_points
 from market_rules import JST, position_size, session_status
-from data_provider import get_provider
+from data_provider import complete_bars, get_provider
 import kronos_feed
 
 logging.basicConfig(level=logging.INFO)
@@ -129,8 +129,8 @@ def _analyze_screener():
     for meta in STOCKS_UNIVERSE:
         sym = meta["symbol"]
         try:
-            df = frames.get(sym)
-            calc = calculate_indicators(df, intraday=True) if df is not None else None
+            df = complete_bars(frames.get(sym), SCREENER_INTERVAL, provider.delay_minutes)
+            calc = calculate_indicators(df, intraday=True) if df is not None and len(df) else None
             if calc is None:
                 continue
             pred = generate_directional_prediction(calc, macro, meta, SCREENER_INTERVAL)
@@ -225,7 +225,7 @@ def api_stock_detail(symbol):
     macro = get_macro_context()
     meta = UNIVERSE_BY_SYMBOL.get(sym)
     try:
-        df = provider.history(sym, interval=interval, period=period)
+        df = complete_bars(provider.history(sym, interval=interval, period=period), interval, provider.delay_minutes)
         if len(df) == 0:
             return jsonify({"success": False, "error": f"No data for {sym}"}), 404
         if meta is None:
