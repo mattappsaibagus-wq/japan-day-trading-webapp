@@ -463,6 +463,8 @@ body {
   background: var(--panel-strong);
 }
 
+.back-to-list { display: none; }
+
 .screener-table tr.selected {
   background: var(--panel-active);
   border-left: 3px solid var(--brand);
@@ -1134,32 +1136,80 @@ body {
 }
 
 @media (max-width: 600px) {
-  .top-nav { padding: 8px 12px; gap: 6px 12px; }
-  .disclaimer-banner { margin-left: 0; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 10px; }
-  .disclaimer-en { margin-left: 0 !important; }
-  .macro-bar { gap: 6px 14px; font-size: 12px; }
+  /* Header: compact brand row, boxed disclaimer, macro values as chips */
+  .top-nav { padding: 10px 12px; gap: 8px; }
+  .logo-group { gap: 10px; }
+  .terminal-badge { font-size: 10px; padding: 3px 6px; }
+  .disclaimer-banner {
+    margin-left: 0; width: 100%; flex-direction: column; align-items: flex-start; gap: 4px;
+    font-size: 10px; line-height: 1.5; padding: 8px 10px;
+    border: 1px solid rgba(245, 181, 68, 0.3); border-radius: 10px; background: rgba(245, 181, 68, 0.06);
+  }
+  .disclaimer-en { margin-left: 0 !important; font-weight: 500; }
+  .macro-bar { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+  .macro-item {
+    gap: 6px; padding: 5px 10px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  .macro-item.session-indicator { width: 100%; justify-content: center; }
+  .macro-item .badge { font-size: 10px; }
   .top-actions { width: 100%; }
-  .top-actions .btn { flex: 1; justify-content: center; min-height: 40px; }
+  .top-actions .btn { flex: 1; justify-content: center; min-height: 40px; border-radius: 10px; }
 
-  .panel-header { padding: 10px 12px; }
-  .filter-row { align-items: flex-start; }
-  .filter-heading { padding-top: 8px; min-width: 48px; }
-  .action-filters, .cap-filters { flex-wrap: wrap; }
-  .act-btn, .cap-btn { min-height: 34px; }
+  /* Filters: single-line pill rows that scroll sideways instead of overflowing */
+  .panel-header { padding: 12px; }
+  .filter-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  .action-filters, .cap-filters {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .action-filters::-webkit-scrollbar, .cap-filters::-webkit-scrollbar { display: none; }
+  .act-btn, .cap-btn { flex: none; min-height: 36px; padding: 6px 14px; border-radius: 999px; font-size: 12px; }
   /* 16px inputs stop iOS Safari zooming the page on focus */
   .search-bar input, .sizing-inputs input { font-size: 16px; }
   .search-bar button { white-space: nowrap; }
 
-  /* Keep code, name, price, change, signal and hit rate; drop the rest on phones */
-  .screener-table th:nth-child(3), .screener-table td:nth-child(3),
-  .screener-table th:nth-child(6), .screener-table td:nth-child(6),
-  .screener-table th:nth-child(7), .screener-table td:nth-child(7),
-  .screener-table th:nth-child(8), .screener-table td:nth-child(8),
-  .screener-table th:nth-child(9), .screener-table td:nth-child(9) { display: none; }
-  .screener-table th, .screener-table td { padding: 9px 4px; }
-  .screener-table td:nth-child(2) { max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
-  .screener-table .cell-name, .screener-table .cell-en { display: block; overflow: hidden; text-overflow: ellipsis; }
+  /* Scanner: each stock is a card instead of a wide table row */
+  .table-container { max-height: none; overflow: visible; padding: 8px 12px 12px; }
+  .screener-table, .screener-table tbody { display: block; }
+  .screener-table thead { display: none; }
+  .screener-table tr {
+    display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px 10px;
+    padding: 12px 14px; margin-bottom: 10px;
+    background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--border-strong);
+    border-radius: 14px;
+  }
+  .screener-table tr[data-sig$="buy"] { border-left-color: var(--buy); }
+  .screener-table tr[data-sig="hold"] { border-left-color: var(--hold); }
+  .screener-table tr[data-sig$="sell"] { border-left-color: var(--sell); }
+  .screener-table tr.selected { border-left-width: 4px; border-color: var(--border-brand); background: var(--panel-active); }
+  .screener-table td { display: block; padding: 0; border: none; font-size: 13px; }
+  .screener-table td:nth-child(6), .screener-table td:nth-child(7),
+  .screener-table td:nth-child(8), .screener-table td:nth-child(9) { display: none; }
+  .screener-table td:nth-child(2) { grid-column: 1 / 4; grid-row: 1; min-width: 0; }
+  .screener-table td:nth-child(10) { grid-column: 4; grid-row: 1; justify-self: end; }
+  .screener-table td:nth-child(1) { grid-column: 1; grid-row: 2; }
+  .screener-table td:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .screener-table td:nth-child(4) { grid-column: 3; grid-row: 2; }
+  .screener-table td:nth-child(5) { grid-column: 4; grid-row: 2; }
+  .screener-table td:nth-child(11) { grid-column: 1 / -1; grid-row: 3; text-align: left; font-size: 11px; color: var(--muted); }
+  .screener-table td:nth-child(11)::before { content: "シグナル方向の的中率 "; font-family: var(--font-sans); color: var(--faint); }
+  .screener-table td.loading-state { grid-column: 1 / -1; }
+  .screener-table .cell-name { display: block; max-width: none; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .screener-table .cell-en { font-size: 10px; }
+  .screener-table .badge-sig { font-size: 12px; padding: 5px 10px; border-radius: 999px; }
+  .screener-table .cap-tag { font-size: 10px; }
 
+  /* Jump back to the list from the detail view */
+  .back-to-list.show {
+    display: flex; position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 50;
+    align-items: center; gap: 4px; padding: 10px 16px; border-radius: 999px;
+    background: var(--brand); color: #05070b; font-weight: 800; font-size: 13px; border: none;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  }
+
+  .detail-panel { padding: 12px; }
+  .trade-card, .card { border-radius: 14px; }
   .stock-name-row { flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
   .stock-name { font-size: 18px; }
   .stock-title-group { justify-content: center; }
