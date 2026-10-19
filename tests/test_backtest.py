@@ -24,3 +24,13 @@ def test_calibration_feeds_engine(tmp_path, monkeypatch):
     assert quant_engine.calibrated_probability(100, "15m")["p_up"] == 0.56
     assert quant_engine.calibrated_probability(-5, "15m")["p_up"] == 0.45
     assert quant_engine.calibrated_probability(10, "5m") is None
+
+
+def test_signal_hit_rate_follows_signal_direction():
+    from quant_engine import signal_hit_rate
+    prob = {"p_up": 0.542, "base_rate_up": 0.522}
+    assert signal_hit_rate("BUY", prob) == (54.2, 2.0)
+    assert signal_hit_rate("SELL", prob) == (45.8, -2.0)
+    assert signal_hit_rate("HOLD", prob) == (None, None)
+    assert signal_hit_rate("BUY", None) == (None, None)
+    assert signal_hit_rate("SELL", {"p_up": 0.4}) == (60.0, None)

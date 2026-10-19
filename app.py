@@ -156,6 +156,8 @@ def _analyze_screener():
                 "action_en": pred["action_en"],
                 "prob_up": pred["probability_up"],
                 "prob_down": pred["probability_down"],
+                "prob_signal": pred["probability_signal"],
+                "edge_pp": pred["signal_edge_pp"],
                 "setup": pred["setup"],
                 "near_limit": any("ストップ" in w for w in pred["warnings"]),
                 "last_bar": calc.index[-1].isoformat(),

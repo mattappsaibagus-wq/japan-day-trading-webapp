@@ -229,8 +229,24 @@ def calibrated_probability(score, interval):
             if b["n"] < block.get("min_samples", 50):
                 return None
             return {"p_up": b["p_up"], "n": b["n"], "horizon_bars": block["horizon_bars"],
-                    "avg_ret_pct": b.get("avg_ret_pct")}
+                    "avg_ret_pct": b.get("avg_ret_pct"), "base_rate_up": block.get("base_rate_up")}
     return None
+
+
+def signal_hit_rate(action, prob):
+    """
+    How often the signal's own direction was right (P(up) for BUY, P(down) for SELL), in %,
+    and its edge over the unconditional base rate for that direction, in percentage points.
+    (None, None) for HOLD or when uncalibrated; edge is None if the base rate is missing.
+    """
+    if not prob or action not in ("BUY", "SELL"):
+        return None, None
+    hit = prob["p_up"] if action == "BUY" else 1 - prob["p_up"]
+    base = prob.get("base_rate_up")
+    if base is not None and action == "SELL":
+        base = 1 - base
+    edge = round((hit - base) * 100, 1) if base is not None else None
+    return round(hit * 100, 1), edge
 
 
 def build_brackets(action, f, topix500=False, stop_atr=1.2, t1_r=1.5, t2_r=2.6):
@@ -273,7 +289,8 @@ def generate_directional_prediction(df, macro_context=None, meta=None, interval=
         return {
             "score": 0, "signal": "HOLD", "signal_jp": "様子見", "mark": "△",
             "action": "HOLD", "action_jp": "様子見", "action_en": "HOLD",
-            "probability_up": None, "probability_down": None, "probability_source": "insufficient data",
+            "probability_up": None, "probability_down": None, "probability_signal": None, "signal_edge_pp": None,
+            "probability_source": "insufficient data",
             "confidence": 0.0, "agents": [], "setup": "データ不足 (Insufficient data)",
             "brackets": None, "factors": {}, "indicators": {}, "levels": {},
             "warnings": [f"Need at least {MIN_BARS} bars to score"],
@@ -285,6 +302,7 @@ def generate_directional_prediction(df, macro_context=None, meta=None, interval=
     setup, action_jp = SETUPS[signal]
 
     prob = calibrated_probability(score, interval)
+    hit_rate, edge_pp = signal_hit_rate(action, prob)
     warnings = []
     if not f["intraday"]:
         warnings.append("日足ベースのシグナル (Daily-bar signal — swing context, not an intraday trigger)")
@@ -312,6 +330,8 @@ def generate_directional_prediction(df, macro_context=None, meta=None, interval=
         "action_en": action,
         "probability_up": round(prob["p_up"] * 100, 1) if prob else None,
         "probability_down": round((1 - prob["p_up"]) * 100, 1) if prob else None,
+        "probability_signal": hit_rate,
+        "signal_edge_pp": edge_pp,
         "probability_source": (f"backtest n={prob['n']}, {prob['horizon_bars']}-bar horizon" if prob else "uncalibrated"),
         "confidence": result["agreement"],
         "agents": result["agents"],
