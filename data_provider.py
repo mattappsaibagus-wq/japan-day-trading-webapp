@@ -54,6 +54,29 @@ class YahooProvider:
             return {}
 
 
+INTERVAL_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
+
+
+def complete_bars(df, interval, delay_minutes=0, now=None):
+    """Drop intraday bars that are still forming.
+
+    Yahoo returns the current, partial bar. Signals and the backtest must see the
+    same thing, and the backtest only ever sees finished bars, so a bar is kept
+    only once it has ended and the feed delay has passed.
+    """
+    minutes = INTERVAL_MINUTES.get(interval)
+    if df is None or len(df) == 0 or minutes is None:
+        return df
+    now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="Asia/Tokyo")
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("Asia/Tokyo")
+    if now.tzinfo is None:
+        now = now.tz_localize("Asia/Tokyo")
+    ends = idx + pd.Timedelta(minutes=minutes + delay_minutes)
+    return df[ends <= now]
+
+
 def _clean(df):
     if df is None or len(df) == 0:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])

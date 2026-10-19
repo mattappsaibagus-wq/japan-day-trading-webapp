@@ -54,3 +54,14 @@ def test_calendar():
                                       ((15, 27), "closing_auction"), ((15, 31), "closed")])
 def test_session_status(hm, state):
     assert session_status(datetime(2026, 10, 19, *hm, tzinfo=JST))["state"] == state
+
+
+def test_complete_bars_drops_forming_bar():
+    import pandas as pd
+    from data_provider import complete_bars
+    idx = pd.DatetimeIndex(["2026-10-20 10:00", "2026-10-20 10:15", "2026-10-20 10:30"]).tz_localize("Asia/Tokyo")
+    df = pd.DataFrame({"Close": [1.0, 2.0, 3.0]}, index=idx)
+    now = pd.Timestamp("2026-10-20 10:52", tz="Asia/Tokyo")
+    # 10:15 bar ends 10:30, +20 min delay = 10:50 -> complete; 10:30 bar is still forming
+    assert list(complete_bars(df, "15m", 20, now).Close) == [1.0, 2.0]
+    assert len(complete_bars(df, "1d", 20, now)) == 3
