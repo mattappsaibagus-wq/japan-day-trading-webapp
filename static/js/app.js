@@ -15,6 +15,7 @@ let volumeSeries = null;
 let cachedCandles = [];
 let cachedDetail = null;
 let marketSession = { state: "closed" };
+let kronosFeed = { forecasts: {} };
 
 // Scanner probability cell: how often the signal's own direction was right, coloured by
 // its edge over the base rate (not by whether P(up) is above 50%).
@@ -32,6 +33,55 @@ function probCellHtml(s) {
   const title = (edge === null || edge === undefined) ? "基準確率なし"
     : `基準比 ${edge > 0 ? "+" : ""}${edge}pt (±${EDGE_PP}pt 未満は優位性なし)`;
   return `<span class="${cls}" title="${title}">${s.prob_signal}%</span>`;
+}
+
+// Kronos: next-hour forecasts (4 x 15m bars) from this repo's own Kronos job. Shown in the
+// agent row but kept out of the score until they have been backtested.
+async function loadKronos() {
+  try {
+    const res = await fetch("/api/kronos");
+    if (res.ok) kronosFeed = await res.json();
+  } catch (err) {
+    console.warn("Kronos feed unavailable:", err);
+  }
+}
+
+function kronosMove(k) {
+  const arrow = k.direction === "up" ? "▲" : k.direction === "down" ? "▼" : "→";
+  const v = k.expected_move_pct;
+  return k.direction === "flat" ? `${arrow}${v > 0 ? "+" : ""}${v}%` : `${arrow}${Math.abs(v)}%`;
+}
+
+function kronosColor(k) {
+  return k.direction === "up" ? "var(--buy)" : k.direction === "down" ? "var(--sell)" : "#aaa";
+}
+
+function jstTime(iso) {
+  return iso ? new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric",
+    day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "--";
+}
+
+function kronosTitle(k) {
+  const agree = k.path_agreement != null ? `${Math.round(k.path_agreement * 100)}%` : "--";
+  const range = Array.isArray(k.range_pct) ? `${k.range_pct[0]}% 〜 ${k.range_pct[1]}%` : "--";
+  return `Kronos 1時間先予測 (${jstTime(k.target_bar)} の足まで) · パス一致 ${agree} · レンジ ${range} · ` +
+    `${jstTime(kronosFeed.generated_at)} JST 更新 · スコアには含めていません`;
+}
+
+function kronosChipHtml(symbol) {
+  const k = (kronosFeed.forecasts || {})[symbol];
+  if (!k || k.direction === "flat") return "";
+  return `<span class="kronos-chip ${k.direction}" title="${esc(kronosTitle(k))}">K ${kronosMove(k)}</span>`;
+}
+
+// Badge for the agent row, tagged 1h: it forecasts the next hour and is not part of the score.
+function kronosBadgeHtml(symbol) {
+  const k = (kronosFeed.forecasts || {})[symbol];
+  const val = k
+    ? `<span style="color:${kronosColor(k)};font-weight:bold">${kronosMove(k)}</span>`
+    : `<span style="color:#aaa;font-weight:bold">n/a</span>`;
+  const title = k ? kronosTitle(k) : "Kronos 1時間先予測: この銘柄の予測なし";
+  return `<span class="agent-badge kronos-badge" data-agent="kronos" title="${esc(title)}">KRONOS ${val}<span class="kronos-tag">1h</span></span>`;
 }
 
 function esc(v) {
@@ -187,6 +237,9 @@ async function loadScreener() {
     const res = await fetch(`/api/screener?cap=${currentCapFilter}&action=${currentActionFilter}`);
     const data = await res.json();
     let stocks = data.stocks || [];
+    const bars = stocks.map(st => Date.parse(st.last_bar)).filter(Number.isFinite);
+    doctor.screener = { ok: res.ok, rows: stocks.length, lastBar: bars.length ? Math.max(...bars) : null };
+    runDoctor();
 
     // Client-side search query
     const searchVal = (document.getElementById("screener-search").value || "").trim().toLowerCase();
@@ -231,7 +284,7 @@ async function loadScreener() {
         <td>
           <div class="cell-name-box">
             <span class="cell-name">${esc(s.name_jp)}${limitFlag}</span>
-            <span class="cell-en">${esc(s.name)}</span>
+            <span class="cell-en">${esc(s.name)}</span>${kronosChipHtml(s.symbol)}
           </div>
         </td>
         <td><span class="cap-tag ${esc(s.cap)}">${s.cap === 'Large' ? 'プライム大型' : (s.cap === 'Mid' ? '中型主力' : 'グロース')}</span></td>
@@ -265,8 +318,134 @@ async function loadScreener() {
 
   } catch (err) {
     console.error("Screener fetch error:", err);
+    doctor.screener = { ok: false };
+    runDoctor();
     tbody.innerHTML = `<tr><td colspan="9" class="loading-state" style="color: var(--sell);">スクリーナーデータの取得に失敗しました。</td></tr>`;
   }
+}
+
+// Doctor, in two parts. The site doctor (doctor/doctor.py) runs in GitHub Actions every hour
+// and after every Kronos run, and publishes health.json, read live here (not from the
+// snapshot). The browser checks judge the data on this screen from the timestamps the API
+// returns, re-checked every minute. The chip shows the worse of the two.
+const doctor = { screener: null, detail: null, site: null };
+const HEALTH_URL = "https://raw.githubusercontent.com/mattappsaibagus-wq/japan-day-trading-webapp/doctor-status/health.json";
+const HEALTH_MAX_AGE_H = 3;  // the site doctor runs hourly
+const FEED_DELAY_MIN = 20;
+const KRONOS_MAX_LAG_MIN = 90;  // Kronos job runs every 30 min in TSE hours (cron can lag)
+
+function jstParts(ms) {
+  const d = new Date(ms + 9 * 3600e3);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), dow: d.getUTCDay(),
+    mins: d.getUTCHours() * 60 + d.getUTCMinutes() };
+}
+
+// Latest bar a fresh feed should have reached by `now` (weekdays only; JPX holidays not modelled).
+function expectedLatestBar(now) {
+  const p = jstParts(now);
+  const weekday = p.dow >= 1 && p.dow <= 5;
+  if (weekday && p.mins >= 9 * 60 && p.mins < 15 * 60 + 30) {
+    return { ms: now - FEED_DELAY_MIN * 60e3, open: true };
+  }
+  let back = (weekday && p.mins >= 15 * 60 + 30) ? 0 : 1;
+  for (;; back++) {
+    const q = jstParts(now - back * 86400e3);
+    if (q.dow >= 1 && q.dow <= 5) return { ms: Date.UTC(q.y, q.m, q.d, 15, 30) - 9 * 3600e3, open: false };
+  }
+}
+
+function fmtAge(ms) {
+  const m = Math.round(ms / 60e3);
+  if (m < 60) return `${m}分前`;
+  if (m < 48 * 60) return `${Math.floor(m / 60)}時間${m % 60 ? (m % 60) + "分" : ""}前`;
+  return `${Math.floor(m / 1440)}日前`;
+}
+
+function fmtJstShort(ms) {
+  return new Date(ms).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false }) + " JST";
+}
+
+async function loadSiteHealth() {
+  try {
+    // raw.githubusercontent caches for a few minutes; bust once a minute at most
+    const res = await fetch(`${HEALTH_URL}?m=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+    if (res.ok) doctor.site = await res.json();
+  } catch (err) {
+    console.warn("Site health unavailable:", err);
+  }
+  runDoctor();
+}
+
+function siteChecks(now) {
+  const h = doctor.site;
+  if (!h || !Array.isArray(h.checks)) return [];
+  const checks = h.checks.map(c => ({ level: ["ok", "stale", "broken"].includes(c.status) ? c.status : "warn",
+    name: c.name, detail: c.detail }));
+  const at = Date.parse(h.checked_at);
+  if (now - at > HEALTH_MAX_AGE_H * 3600e3) {
+    checks.push({ level: "stale", name: "自動診断", detail: `最終診断 ${fmtJstShort(at)} (${fmtAge(now - at)}) · 診断ジョブが止まっています` });
+  }
+  (h.fixes || []).forEach(f => checks.push({ level: "warn", name: "自動修復", detail: `${f.action}: ${f.result}` }));
+  return checks;
+}
+
+function doctorRows(checks) {
+  const mark = { ok: "✓", stale: "!", warn: "!", broken: "✕", pending: "…" };
+  return checks.map(c => `<div class="doctor-row ${c.level}"><span class="doctor-mark">${mark[c.level]}</span>` +
+    `<span class="doctor-name">${esc(c.name)}</span><span class="doctor-detail">${esc(c.detail)}</span></div>`).join("");
+}
+
+function runDoctor() {
+  const now = Date.now();
+  const checks = [];
+  const sc = doctor.screener;
+  if (!sc) {
+    checks.push({ level: "pending", name: "スクリーナー", detail: "確認中..." });
+  } else if (!sc.ok || sc.rows === 0) {
+    checks.push({ level: "broken", name: "スクリーナー", detail: sc.ok ? "銘柄データが0件" : "データを取得できません" });
+  } else {
+    checks.push({ level: "ok", name: "スクリーナー", detail: `${sc.rows} 銘柄を取得` });
+    const exp = expectedLatestBar(now);
+    const tol = (exp.open ? 75 : 45) * 60e3;  // lunch break / last-bar slack
+    const behind = exp.ms - sc.lastBar;
+    checks.push({
+      level: behind > tol ? "stale" : "ok", name: "市場データ",
+      detail: `最終足 ${fmtJstShort(sc.lastBar)} (${fmtAge(now - sc.lastBar)})` +
+        (behind > tol ? ` · ${exp.open ? "取引時間中ですが更新が止まっています" : `${fmtJstShort(exp.ms)} の大引けまで届いていません`}` : ""),
+    });
+  }
+  if (doctor.detail === false) {
+    checks.push({ level: "broken", name: "銘柄詳細", detail: "選択した銘柄のデータを読み込めません" });
+  } else if (doctor.detail) {
+    checks.push({ level: "ok", name: "銘柄詳細", detail: "読み込み OK" });
+  }
+  const kGen = kronosFeed.generated_at ? Date.parse(kronosFeed.generated_at) : null;
+  if (!kGen) {
+    checks.push({ level: "warn", name: "Kronos", detail: "予測データなし (Kronos ジョブから取得できず)" });
+  } else {
+    const n = Object.keys(kronosFeed.forecasts || {}).length;
+    const old = kGen < expectedLatestBar(now).ms - KRONOS_MAX_LAG_MIN * 60e3;
+    checks.push({ level: old ? "warn" : "ok", name: "Kronos",
+      detail: `${fmtJstShort(kGen)} 更新 (${fmtAge(now - kGen)}) · ${n} 銘柄${old ? " · 古い予測です" : ""}` });
+  }
+
+  const site = siteChecks(now);
+  const all = checks.concat(site);
+  const has = l => all.some(c => c.level === l);
+  const status = has("broken") ? "broken" : has("stale") ? "stale" : has("pending") ? "pending" : "current";
+  const label = { broken: "Health BROKEN", stale: "Health STALE", pending: "Health …", current: "Health OK" }[status];
+  const chip = document.getElementById("doctor-chip");
+  chip.dataset.status = status;
+  document.getElementById("doctor-label").textContent = label;
+  const siteHead = doctor.site
+    ? `サイト自動診断 <span>${fmtJstShort(Date.parse(doctor.site.checked_at))} 確認 · 1時間ごと</span>`
+    : `サイト自動診断 <span>まだ結果がありません</span>`;
+  document.getElementById("doctor-panel").innerHTML =
+    `<div class="doctor-head">${siteHead}</div>` + doctorRows(site) +
+    `<div class="doctor-head doctor-sub">この画面のデータ <span>${fmtJstShort(now)} 確認 · 毎分再チェック</span></div>` +
+    doctorRows(checks) +
+    `<div class="doctor-foot">OK = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落・停止。</div>`;
 }
 
 // Select & Load Stock Details
@@ -276,6 +455,8 @@ async function selectStock(symbol) {
   try {
     const res = await fetch(`/api/stock/${symbol}?interval=${currentTimeframe}`);
     const data = await res.json();
+    doctor.detail = !!data.success;
+    runDoctor();
     if (!data.success) {
       showToast("銘柄読み込みエラー: " + (data.error || "不明"));
       return;
@@ -289,6 +470,8 @@ async function selectStock(symbol) {
 
   } catch (err) {
     console.error("Stock load error:", err);
+    doctor.detail = false;
+    runDoctor();
     showToast("株価データの取得に失敗しました。");
   }
 }
@@ -377,7 +560,7 @@ function renderStockDetails(data) {
   document.getElementById("agent-badge-row").innerHTML = agentList.map(a => {
     const color = a.score > 0 ? "var(--buy)" : (a.score < 0 ? "var(--sell)" : "#aaa");
     return `<span class="agent-badge" data-agent="${esc(a.agent)}">${esc(a.agent.toUpperCase())} <span style="color:${color};font-weight:bold">${a.active ? (a.score > 0 ? "+" : "") + a.score : "n/a"}</span></span>`;
-  }).join(" ");
+  }).join(" ") + " " + kronosBadgeHtml((data.meta && data.meta.symbol) || currentSymbol);
 
   // Agent breakdown with reasons
   document.getElementById("agent-rows").innerHTML = agentList.map(a => {
@@ -625,8 +808,11 @@ document.addEventListener("DOMContentLoaded", () => {
   applyColorMode(colorMode);
   loadSession();
   loadMacro();
-  loadScreener();
-  selectStock(currentSymbol);
+  // Kronos forecasts decorate the scanner and detail, so load them first
+  loadKronos().then(() => {
+    loadScreener();
+    selectStock(currentSymbol);
+  });
 
   // Phones: show a "back to list" button while the stock detail is on screen
   const backBtn = document.getElementById("back-to-list");
@@ -641,6 +827,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("chart-container");
     if (chartInstance && container) chartInstance.applyOptions({ width: container.clientWidth });
   });
+
+  const doctorChip = document.getElementById("doctor-chip");
+  const toggleDoctor = () => document.getElementById("doctor-panel").classList.toggle("open");
+  doctorChip.addEventListener("click", toggleDoctor);
+  doctorChip.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") toggleDoctor(); });
+  setInterval(runDoctor, 60000);
+  loadSiteHealth();
+  setInterval(loadSiteHealth, 5 * 60000);
 
   setInterval(loadSession, 30000);
   setInterval(loadMacro, 60000);

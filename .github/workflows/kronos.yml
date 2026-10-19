@@ -1,0 +1,78 @@
+# Runs the Kronos model (github.com/shiyu-coder/Kronos) on 15m bars during TSE
+# hours and publishes next-hour forecasts to the kronos-data branch, which the
+# web app reads through kronos_feed.py. Pull requests touching the job run it
+# too, so a change to the model code is checked on real data before merging.
+name: Kronos intraday forecast
+
+on:
+  schedule:
+    - cron: "5,35 0-6 * * 1-5"   # 09:05-15:35 JST, weekdays
+    - cron: "55 6 * * 1-5"       # 15:55 JST: picks up the closing bar
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - kronos_intraday.py
+      - requirements-kronos.txt
+      - .github/workflows/kronos.yml
+
+concurrency:
+  group: kronos
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  KRONOS_REPO: https://github.com/shiyu-coder/Kronos
+  KRONOS_COMMIT: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+  KRONOS_DIR: Kronos
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-kronos.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-kronos.txt
+
+      - name: Get Kronos (pinned commit)
+        run: |
+          git init -q "$KRONOS_DIR"
+          git -C "$KRONOS_DIR" fetch -q --depth 1 "$KRONOS_REPO" "$KRONOS_COMMIT"
+          git -C "$KRONOS_DIR" checkout -q FETCH_HEAD
+
+      - name: Cache Kronos weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: kronos-hf-${{ env.KRONOS_COMMIT }}
+          restore-keys: kronos-hf-
+
+      - name: Forecast
+        run: python -u kronos_intraday.py kronos.json
+
+      - name: Publish to kronos-data branch
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          mkdir pub && cp kronos.json pub/
+          cd pub
+          git init -q -b kronos-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kronos.json
+          git commit -q -m "Kronos forecast $(date -u +%FT%TZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:kronos-data

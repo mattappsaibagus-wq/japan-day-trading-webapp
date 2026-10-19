@@ -35,6 +35,11 @@
         <span class="session-text" id="session-status">東証 開場状況確認中...</span>
       </div>
 
+      <div class="macro-item doctor-chip" id="doctor-chip" data-status="pending" role="button" tabindex="0" title="データ診断 (タップで詳細)">
+        <span class="doctor-dot"></span>
+        <span id="doctor-label">Health …</span>
+      </div>
+
       <div class="macro-item" id="data-feed" title="データ提供元と遅延">
         <span class="macro-label">データ</span>
         <span class="badge badge-feed" id="data-feed-badge">確認中...</span>
@@ -62,6 +67,9 @@
         <span class="clock-val" id="jst-clock">--:--:--</span>
       </div>
     </div>
+
+    <!-- Data doctor details (toggled from the status chip) -->
+    <div class="doctor-panel" id="doctor-panel"></div>
 
     <!-- Actions & Color Convention Toggle -->
     <div class="top-actions">
@@ -203,6 +211,7 @@
         <div class="agent-badge-row" id="agent-badge-row">
           <!-- agent badges injected by JS -->
         </div>
+
 
         <!-- Order Brackets for Day Traders -->
         <div class="order-brackets">

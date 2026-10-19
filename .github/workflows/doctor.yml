@@ -1,0 +1,65 @@
+# Site doctor: checks minnanokabu.netlify.app and the Kronos job every hour and
+# after every Kronos run, applies safe fixes (re-runs Kronos), and publishes
+# health.json to the doctor-status branch. The site reads it live to show
+# Health OK / STALE / BROKEN. See doctor/doctor.py.
+name: Site doctor
+
+on:
+  schedule:
+    - cron: "47 * * * *"
+  workflow_run:
+    workflows: ["Kronos intraday forecast"]
+    types: [completed]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - doctor/**
+      - .github/workflows/doctor.yml
+
+concurrency:
+  group: doctor
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push health.json to the doctor-status branch
+  actions: write    # start or re-run the Kronos job
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install calendar
+        run: pip install "jpholiday>=0.1.10"
+
+      - name: Load previous report
+        run: |
+          curl -fsS "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/doctor-status/health.json" \
+            -o "$RUNNER_TEMP/prev.json" || echo '{}' > "$RUNNER_TEMP/prev.json"
+
+      - name: Examine site
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DOCTOR_PREV_HEALTH: ${{ runner.temp }}/prev.json
+          DOCTOR_OUT: ${{ runner.temp }}/health.json
+          DOCTOR_DRY_RUN: ${{ github.event_name == 'pull_request' && '1' || '' }}
+        run: python -u doctor/doctor.py
+
+      - name: Publish health.json
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          dir="$RUNNER_TEMP/status"
+          mkdir -p "$dir" && cd "$dir"
+          git init -q -b doctor-status
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$RUNNER_TEMP/health.json" health.json
+          git add health.json
+          git commit -q -m "Site health report"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}" HEAD:doctor-status
