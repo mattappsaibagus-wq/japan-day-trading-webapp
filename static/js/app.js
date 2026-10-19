@@ -211,6 +211,7 @@ async function loadScreener() {
       const tr = document.createElement("tr");
       if (s.symbol === currentSymbol) tr.classList.add("selected");
       tr.dataset.symbol = s.symbol;
+      tr.dataset.sig = s.signal.toLowerCase().replace(" ", "-");
 
       const chgClass = s.change >= 0 ? "macro-chg up" : "macro-chg down";
       const arrow = s.change > 0 ? "▲ +" : (s.change < 0 ? "▼ " : "― ");
@@ -626,6 +627,15 @@ document.addEventListener("DOMContentLoaded", () => {
   loadMacro();
   loadScreener();
   selectStock(currentSymbol);
+
+  // Phones: show a "back to list" button while the stock detail is on screen
+  const backBtn = document.getElementById("back-to-list");
+  const screenerPanel = document.querySelector(".screener-panel");
+  backBtn.addEventListener("click", () => screenerPanel.scrollIntoView({ behavior: "smooth" }));
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(([e]) => backBtn.classList.toggle("show", e.isIntersecting))
+      .observe(document.getElementById("detail-panel"));
+  }
 
   window.addEventListener("resize", () => {
     const container = document.getElementById("chart-container");
