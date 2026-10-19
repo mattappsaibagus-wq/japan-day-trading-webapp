@@ -1054,6 +1054,9 @@ body {
   font-family: var(--font-mono);
 }
 .prob-uncal { color: var(--faint); font-weight: 700; }
+.prob-edge { color: var(--brand); font-weight: 800; }
+.prob-noedge { color: var(--muted); font-weight: 700; }
+.prob-negedge { color: var(--danger); font-weight: 800; }
 
 .warning-list {
   list-style: none;

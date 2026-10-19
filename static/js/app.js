@@ -16,6 +16,24 @@ let cachedCandles = [];
 let cachedDetail = null;
 let marketSession = { state: "closed" };
 
+// Scanner probability cell: how often the signal's own direction was right, coloured by
+// its edge over the base rate (not by whether P(up) is above 50%).
+const EDGE_PP = 2;
+function probCellHtml(s) {
+  if (s.prob_up === null || s.prob_up === undefined) {
+    return `<span class="prob-uncal" title="backtest.py 未実行">未検証</span>`;
+  }
+  if (s.prob_signal === null || s.prob_signal === undefined) {
+    return `<span class="prob-noedge" title="様子見 — 上昇確率 ${s.prob_up}%">―</span>`;
+  }
+  const edge = s.edge_pp;
+  const cls = (edge === null || edge === undefined || Math.abs(edge) < EDGE_PP) ? "prob-noedge"
+    : (edge > 0 ? "prob-edge" : "prob-negedge");
+  const title = (edge === null || edge === undefined) ? "基準確率なし"
+    : `基準比 ${edge > 0 ? "+" : ""}${edge}pt (±${EDGE_PP}pt 未満は優位性なし)`;
+  return `<span class="${cls}" title="${title}">${s.prob_signal}%</span>`;
+}
+
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -204,9 +222,7 @@ async function loadScreener() {
       const sigText = `${s.signal_jp || s.signal} / ${s.signal}`;
 
       const pct = (v) => (v === null || v === undefined) ? "--" : `${v > 0 ? "+" : ""}${v}%`;
-      const probCell = (s.prob_up === null || s.prob_up === undefined)
-        ? `<span class="prob-uncal" title="backtest.py 未実行">未検証</span>`
-        : `<span style="color: ${s.prob_up >= 50 ? 'var(--buy)' : 'var(--sell)'}; font-weight: 800;">${s.prob_up}%</span>`;
+      const probCell = probCellHtml(s);
       const limitFlag = s.near_limit ? `<span class="limit-flag" title="値幅制限に接近">⚠</span>` : "";
 
       tr.innerHTML = `
@@ -337,8 +353,12 @@ function renderStockDetails(data) {
   document.getElementById("det-prob-up").textContent = calibrated ? `${pred.probability_up}%` : "未検証";
   document.getElementById("det-prob-down").textContent = calibrated ? `${pred.probability_down}%` : "未検証";
   document.getElementById("det-meter-fill").style.width = calibrated ? `${pred.probability_up}%` : "50%";
+  const hit = pred.probability_signal;
+  const hitText = (hit === null || hit === undefined) ? ""
+    : ` / シグナル方向の的中率 ${hit}%` + (pred.signal_edge_pp === null || pred.signal_edge_pp === undefined
+      ? "" : ` (基準比 ${pred.signal_edge_pp > 0 ? "+" : ""}${pred.signal_edge_pp}pt)`);
   document.getElementById("det-prob-source").textContent = calibrated
-    ? `根拠: ${pred.probability_source}`
+    ? `根拠: ${pred.probability_source}${hitText}`
     : "確率は未検証です — `python backtest.py` を実行すると実績ベースの確率が表示されます";
   document.getElementById("det-confidence").textContent = `${pred.confidence}%`;
   document.getElementById("det-score").textContent = pred.score > 0 ? `+${pred.score}` : `${pred.score}`;
