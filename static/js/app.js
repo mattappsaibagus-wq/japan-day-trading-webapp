@@ -49,7 +49,7 @@ async function loadKronos() {
 function kronosMove(k) {
   const arrow = k.direction === "up" ? "▲" : k.direction === "down" ? "▼" : "→";
   const v = k.expected_move_pct;
-  return `${arrow} ${v > 0 ? "+" : ""}${v}%`;
+  return k.direction === "flat" ? `${arrow}${v > 0 ? "+" : ""}${v}%` : `${arrow}${Math.abs(v)}%`;
 }
 
 function kronosColor(k) {
