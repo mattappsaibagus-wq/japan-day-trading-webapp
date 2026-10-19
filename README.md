@@ -30,6 +30,8 @@ A quantitative day trading terminal and market screener specialized for the Toky
   - Intraday levels: VWAP bands, opening range, prior-day high/low/close, floor pivots.
   - No brackets are shown for HOLD signals.
 
+- **Health doctor**: `doctor/doctor.py` runs in GitHub Actions every hour and after every Kronos run. It checks that minnanokabu.netlify.app answers, how old its snapshot is, and whether Kronos is fresh and succeeding. It re-runs Kronos when that is the fix, and publishes `health.json` to the `doctor-status` branch. The page reads that file live and adds its own checks of the data on screen, showing **Health OK / STALE / BROKEN** in the top bar (tap for details).
+
 - **Market Session**: JPX holiday calendar (national holidays + Dec 31–Jan 3), pre-open, morning/afternoon session, lunch break, closing auction (15:25–15:30).
 
 - **Backtest** (`backtest.py`): walk-forward replay of the same engine with next-bar entries, slippage, optional commission, stop-first assumption when a bar hits both levels, and forced flat at the close (no overnight positions). Reports win rate, expectancy (R), profit factor and drawdown.
@@ -70,6 +72,7 @@ japan-day-trading-webapp/
 ├── data_provider.py   # Market data source (Yahoo; swap for a real-time feed)
 ├── kronos_intraday.py # Runs Kronos next-hour forecasts (GitHub Actions job)
 ├── kronos_feed.py     # Reads the published Kronos forecasts for the app
+├── doctor/doctor.py   # Hourly site health check (GitHub Actions) -> doctor-status/health.json
 ├── backtest.py        # Walk-forward backtest + probability calibration
 ├── tests/             # pytest suite (synthetic data, no network needed)
 ├── universe.py        # Stock catalog across Large, Mid, and Small caps

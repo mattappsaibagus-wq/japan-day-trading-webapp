@@ -1143,6 +1143,7 @@ body {
 .doctor-panel.open { display: block; }
 .doctor-head { font-weight: 800; margin-bottom: 6px; }
 .doctor-head span { font-weight: 500; color: var(--faint); font-size: 10px; margin-left: 8px; }
+.doctor-sub { margin-top: 10px; }
 .doctor-row { display: grid; grid-template-columns: 16px 90px 1fr; gap: 6px; padding: 3px 0; align-items: baseline; }
 .doctor-mark { font-weight: 900; }
 .doctor-row.ok .doctor-mark { color: var(--brand); }

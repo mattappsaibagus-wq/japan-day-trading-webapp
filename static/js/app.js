@@ -324,9 +324,13 @@ async function loadScreener() {
   }
 }
 
-// Doctor: judges in the browser whether the data on screen is current, stale or broken,
-// from the timestamps the API returns. Re-checked every minute against the clock.
-const doctor = { screener: null, detail: null };
+// Doctor, in two parts. The site doctor (doctor/doctor.py) runs in GitHub Actions every hour
+// and after every Kronos run, and publishes health.json, read live here (not from the
+// snapshot). The browser checks judge the data on this screen from the timestamps the API
+// returns, re-checked every minute. The chip shows the worse of the two.
+const doctor = { screener: null, detail: null, site: null };
+const HEALTH_URL = "https://raw.githubusercontent.com/mattappsaibagus-wq/japan-day-trading-webapp/doctor-status/health.json";
+const HEALTH_MAX_AGE_H = 3;  // the site doctor runs hourly
 const FEED_DELAY_MIN = 20;
 const KRONOS_MAX_LAG_MIN = 90;  // Kronos job runs every 30 min in TSE hours (cron can lag)
 
@@ -362,6 +366,36 @@ function fmtJstShort(ms) {
     hour: "2-digit", minute: "2-digit", hour12: false }) + " JST";
 }
 
+async function loadSiteHealth() {
+  try {
+    // raw.githubusercontent caches for a few minutes; bust once a minute at most
+    const res = await fetch(`${HEALTH_URL}?m=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+    if (res.ok) doctor.site = await res.json();
+  } catch (err) {
+    console.warn("Site health unavailable:", err);
+  }
+  runDoctor();
+}
+
+function siteChecks(now) {
+  const h = doctor.site;
+  if (!h || !Array.isArray(h.checks)) return [];
+  const checks = h.checks.map(c => ({ level: ["ok", "stale", "broken"].includes(c.status) ? c.status : "warn",
+    name: c.name, detail: c.detail }));
+  const at = Date.parse(h.checked_at);
+  if (now - at > HEALTH_MAX_AGE_H * 3600e3) {
+    checks.push({ level: "stale", name: "自動診断", detail: `最終診断 ${fmtJstShort(at)} (${fmtAge(now - at)}) · 診断ジョブが止まっています` });
+  }
+  (h.fixes || []).forEach(f => checks.push({ level: "warn", name: "自動修復", detail: `${f.action}: ${f.result}` }));
+  return checks;
+}
+
+function doctorRows(checks) {
+  const mark = { ok: "✓", stale: "!", warn: "!", broken: "✕", pending: "…" };
+  return checks.map(c => `<div class="doctor-row ${c.level}"><span class="doctor-mark">${mark[c.level]}</span>` +
+    `<span class="doctor-name">${esc(c.name)}</span><span class="doctor-detail">${esc(c.detail)}</span></div>`).join("");
+}
+
 function runDoctor() {
   const now = Date.now();
   const checks = [];
@@ -391,23 +425,27 @@ function runDoctor() {
     checks.push({ level: "warn", name: "Kronos", detail: "予測データなし (Kronos ジョブから取得できず)" });
   } else {
     const n = Object.keys(kronosFeed.forecasts || {}).length;
-    const old = kGen < expectedLatestBar(now) - KRONOS_MAX_LAG_MIN * 60e3;
+    const old = kGen < expectedLatestBar(now).ms - KRONOS_MAX_LAG_MIN * 60e3;
     checks.push({ level: old ? "warn" : "ok", name: "Kronos",
       detail: `${fmtJstShort(kGen)} 更新 (${fmtAge(now - kGen)}) · ${n} 銘柄${old ? " · 古い予測です" : ""}` });
   }
 
-  const has = l => checks.some(c => c.level === l);
+  const site = siteChecks(now);
+  const all = checks.concat(site);
+  const has = l => all.some(c => c.level === l);
   const status = has("broken") ? "broken" : has("stale") ? "stale" : has("pending") ? "pending" : "current";
   const label = { broken: "Health BROKEN", stale: "Health STALE", pending: "Health …", current: "Health OK" }[status];
   const chip = document.getElementById("doctor-chip");
   chip.dataset.status = status;
   document.getElementById("doctor-label").textContent = label;
-  const mark = { ok: "✓", stale: "!", warn: "!", broken: "✕", pending: "…" };
+  const siteHead = doctor.site
+    ? `サイト自動診断 <span>${fmtJstShort(Date.parse(doctor.site.checked_at))} 確認 · 1時間ごと</span>`
+    : `サイト自動診断 <span>まだ結果がありません</span>`;
   document.getElementById("doctor-panel").innerHTML =
-    `<div class="doctor-head">データ診断 <span>${fmtJstShort(now)} 確認 · 毎分再チェック</span></div>` +
-    checks.map(c => `<div class="doctor-row ${c.level}"><span class="doctor-mark">${mark[c.level]}</span>` +
-      `<span class="doctor-name">${esc(c.name)}</span><span class="doctor-detail">${esc(c.detail)}</span></div>`).join("") +
-    `<div class="doctor-foot">OK = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落。祝日は未考慮。</div>`;
+    `<div class="doctor-head">${siteHead}</div>` + doctorRows(site) +
+    `<div class="doctor-head doctor-sub">この画面のデータ <span>${fmtJstShort(now)} 確認 · 毎分再チェック</span></div>` +
+    doctorRows(checks) +
+    `<div class="doctor-foot">OK = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落・停止。</div>`;
 }
 
 // Select & Load Stock Details
@@ -795,6 +833,8 @@ document.addEventListener("DOMContentLoaded", () => {
   doctorChip.addEventListener("click", toggleDoctor);
   doctorChip.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") toggleDoctor(); });
   setInterval(runDoctor, 60000);
+  loadSiteHealth();
+  setInterval(loadSiteHealth, 5 * 60000);
 
   setInterval(loadSession, 30000);
   setInterval(loadMacro, 60000);
