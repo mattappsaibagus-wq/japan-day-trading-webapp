@@ -219,7 +219,7 @@ async function loadScreener() {
 
       // Authentic Japanese mark + bilingual label
       const mark = s.mark || (s.signal.includes("BUY") ? "○" : (s.signal.includes("SELL") ? "▼" : "△"));
-      const sigText = `${s.signal_jp || s.signal} / ${s.signal}`;
+      const sigText = `${s.signal_jp || s.signal}<span class="sig-en"> / ${s.signal}</span>`;
 
       const pct = (v) => (v === null || v === undefined) ? "--" : `${v > 0 ? "+" : ""}${v}%`;
       const probCell = probCellHtml(s);
@@ -253,6 +253,10 @@ async function loadScreener() {
         document.querySelectorAll(".screener-table tr").forEach(r => r.classList.remove("selected"));
         tr.classList.add("selected");
         selectStock(s.symbol);
+        // On phones the detail sits below the list, so bring it into view
+        if (window.matchMedia("(max-width: 900px)").matches) {
+          document.getElementById("detail-panel").scrollIntoView({ behavior: "smooth" });
+        }
       });
 
       tbody.appendChild(tr);
@@ -481,7 +485,7 @@ function renderChart(candles) {
   try {
     chartInstance = LightweightCharts.createChart(container, {
       width: container.clientWidth,
-      height: 380,
+      height: container.clientWidth < 600 ? 280 : 380,
       layout: {
         background: { color: "#080b12" },
         textColor: "#8e9ab0"
