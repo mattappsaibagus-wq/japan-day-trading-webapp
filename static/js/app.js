@@ -7,70 +7,69 @@ let currentSymbol = "7203.T";
 let currentTimeframe = "15m";
 let currentCapFilter = "all";
 let currentActionFilter = "all";
-let colorMode = localStorage.getItem("kabutrader_colormode") || "jp"; // "jp" (赤高/青安) or "us" (緑高/赤安)
+let colorMode = lsGet("kabutrader_colormode", "jp"); // "jp" (赤高/青安) or "us" (緑高/赤安)
 
 let chartInstance = null;
 let candleSeries = null;
 let volumeSeries = null;
 let cachedCandles = [];
+let cachedDetail = null;
+let marketSession = { state: "closed" };
 
-// JST Market Session Status
-function updateJSTMarketSession() {
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function yen(v) {
+  return (v === null || v === undefined) ? "¥--" : "¥" + Number(v).toLocaleString();
+}
+function lsGet(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } }
+
+// JST clock (client) + TSE session state (server: knows JPX holidays and auction windows)
+function updateJSTClock() {
   const clockEl = document.getElementById("jst-clock");
-  const sessionDot = document.getElementById("session-dot");
-  const sessionText = document.getElementById("session-status");
-  if (!clockEl) return;
+  if (clockEl) clockEl.textContent = new Date().toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false });
+}
+setInterval(updateJSTClock, 1000);
+updateJSTClock();
 
-  const now = new Date();
-  
-  // Format to Tokyo Time
-  const jstString = now.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false });
-  clockEl.textContent = jstString;
+const SESSION_STYLE = {
+  morning: "var(--brand)", afternoon: "var(--brand)", closing_auction: "var(--hold)",
+  pre_open: "var(--hold)", lunch: "var(--hold)", closed: "#5d6879"
+};
 
-  // Calculate Tokyo Stock Exchange Session
-  const tokyoFormatter = new Intl.DateTimeFormat("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    weekday: "short",
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false
-  });
-  
-  const parts = tokyoFormatter.formatToParts(now);
-  const partMap = {};
-  parts.forEach(p => partMap[p.type] = p.value);
-  
-  const weekday = partMap.weekday; // '月', '火', etc.
-  const hour = parseInt(partMap.hour, 10);
-  const minute = parseInt(partMap.minute, 10);
-  const timeInMinutes = hour * 60 + minute;
+async function loadSession() {
+  try {
+    const res = await fetch("/api/session");
+    const data = await res.json();
+    marketSession = data;
+    const dot = document.getElementById("session-dot");
+    const txt = document.getElementById("session-status");
+    const label = data.holiday ? `東証 休場日 (${data.holiday})` : `東証 ${data.label}`;
+    txt.textContent = label;
+    const col = SESSION_STYLE[data.state] || "#5d6879";
+    dot.style.background = col;
+    dot.style.boxShadow = (data.state === "morning" || data.state === "afternoon") ? `0 0 10px ${col}` : "none";
 
-  const isWeekend = (weekday === "土" || weekday === "日");
-
-  if (isWeekend) {
-    sessionText.textContent = "東証 休場日 (週末)";
-    sessionDot.style.background = "#5d6879";
-    sessionDot.style.boxShadow = "none";
-  } else if (timeInMinutes >= 540 && timeInMinutes < 690) { // 09:00 - 11:30
-    sessionText.textContent = "東証 開場中 [前場]";
-    sessionDot.style.background = "var(--brand)";
-    sessionDot.style.boxShadow = "0 0 10px var(--brand)";
-  } else if (timeInMinutes >= 690 && timeInMinutes < 750) { // 11:30 - 12:30
-    sessionText.textContent = "東証 昼休み [前引け後]";
-    sessionDot.style.background = "var(--hold)";
-    sessionDot.style.boxShadow = "0 0 8px var(--hold)";
-  } else if (timeInMinutes >= 750 && timeInMinutes <= 930) { // 12:30 - 15:30
-    sessionText.textContent = "東証 開場中 [後場]";
-    sessionDot.style.background = "var(--brand)";
-    sessionDot.style.boxShadow = "0 0 10px var(--brand)";
-  } else {
-    sessionText.textContent = "東証 取引時間外 [大引け後]";
-    sessionDot.style.background = "#5d6879";
-    sessionDot.style.boxShadow = "none";
+    const feed = document.getElementById("data-feed-badge");
+    if (data.data) {
+      if (data.data.realtime) {
+        feed.textContent = `${data.data.provider} リアルタイム`;
+        feed.className = "badge badge-feed live";
+      } else {
+        feed.textContent = `${data.data.provider} 約${data.data.delay_minutes}分遅延`;
+        feed.className = "badge badge-feed delayed";
+        feed.title = "遅延データです。発注判断には証券会社のリアルタイム板を使用してください。";
+      }
+    }
+  } catch (err) {
+    console.error("Session fetch error:", err);
   }
 }
-setInterval(updateJSTMarketSession, 1000);
-updateJSTMarketSession();
+
+function isMarketOpen() {
+  return ["morning", "afternoon", "closing_auction"].includes(marketSession.state);
+}
 
 // Toast helper
 function showToast(msg) {
@@ -85,7 +84,7 @@ function showToast(msg) {
 function applyColorMode(mode) {
   colorMode = mode;
   document.body.dataset.colorMode = mode;
-  localStorage.setItem("kabutrader_colormode", mode);
+  lsSet("kabutrader_colormode", mode);
   
   const modeText = document.getElementById("mode-text");
   const legendBull = document.querySelector(".legend-text-bull");
@@ -112,6 +111,12 @@ async function loadMacro() {
   try {
     const res = await fetch("/api/macro");
     const data = await res.json();
+    if (data.error) {
+      const rBadge = document.querySelector(".badge-regime");
+      rBadge.textContent = "マクロデータ取得不可";
+      rBadge.style.color = "var(--faint)";
+      return;
+    }
     
     // Nikkei 225
     if (data.nikkei) {
@@ -149,7 +154,7 @@ async function loadMacro() {
         rBadge.style.color = "var(--brand-2)";
         rBadge.style.borderColor = "var(--border-strong)";
       }
-      rBadge.textContent = jpRegime;
+      rBadge.textContent = data.stale ? `${jpRegime} (旧データ)` : jpRegime;
     }
   } catch (err) {
     console.error("Macro fetch error:", err);
@@ -176,7 +181,7 @@ async function loadScreener() {
       );
     }
 
-    document.getElementById("stock-count").textContent = `${stocks.length} 銘柄`;
+    document.getElementById("stock-count").textContent = `${stocks.length} 銘柄 · ${data.interval || ""}`;
     tbody.innerHTML = "";
 
     if (stocks.length === 0) {
@@ -198,28 +203,34 @@ async function loadScreener() {
       const mark = s.mark || (s.signal.includes("BUY") ? "○" : (s.signal.includes("SELL") ? "▼" : "△"));
       const sigText = `${s.signal_jp || s.signal} / ${s.signal}`;
 
+      const pct = (v) => (v === null || v === undefined) ? "--" : `${v > 0 ? "+" : ""}${v}%`;
+      const probCell = (s.prob_up === null || s.prob_up === undefined)
+        ? `<span class="prob-uncal" title="backtest.py 未実行">未検証</span>`
+        : `<span style="color: ${s.prob_up >= 50 ? 'var(--buy)' : 'var(--sell)'}; font-weight: 800;">${s.prob_up}%</span>`;
+      const limitFlag = s.near_limit ? `<span class="limit-flag" title="値幅制限に接近">⚠</span>` : "";
+
       tr.innerHTML = `
-        <td class="cell-code">${s.code}</td>
+        <td class="cell-code">${esc(s.code)}</td>
         <td>
           <div class="cell-name-box">
-            <span class="cell-name">${s.name_jp}</span>
-            <span class="cell-en">${s.name}</span>
+            <span class="cell-name">${esc(s.name_jp)}${limitFlag}</span>
+            <span class="cell-en">${esc(s.name)}</span>
           </div>
         </td>
-        <td><span class="cap-tag ${s.cap}">${s.cap === 'Large' ? 'プライム大型' : (s.cap === 'Mid' ? '中型主力' : 'グロース')}</span></td>
+        <td><span class="cap-tag ${esc(s.cap)}">${s.cap === 'Large' ? 'プライム大型' : (s.cap === 'Mid' ? '中型主力' : 'グロース')}</span></td>
         <td class="text-right font-mono">¥${s.price.toLocaleString()}</td>
         <td class="text-right font-mono ${chgClass}">${arrow}${Math.abs(s.change_pct)}%</td>
-        <td class="text-center font-mono ${rvolClass}">${s.rvol}倍</td>
+        <td class="text-right font-mono">${pct(s.gap_pct)}</td>
+        <td class="text-right font-mono">${pct(s.vwap_dev_pct)}</td>
+        <td class="text-center font-mono ${rvolClass}">${s.rvol ?? "--"}倍</td>
         <td class="text-center font-mono">${s.rsi}</td>
         <td class="text-center">
-          <span class="badge-sig ${sigKey}">
+          <span class="badge-sig ${sigKey}" title="スコア ${s.score}">
             <span>${mark}</span>
             <span>${sigText}</span>
           </span>
         </td>
-        <td class="text-right font-mono" style="color: ${s.prob_up >= 50 ? 'var(--buy)' : 'var(--sell)'}; font-weight: 800;">
-          ${s.prob_up}%
-        </td>
+        <td class="text-right font-mono">${probCell}</td>
       `;
 
       tr.addEventListener("click", () => {
@@ -249,9 +260,11 @@ async function selectStock(symbol) {
       return;
     }
 
+    cachedDetail = data;
     renderStockDetails(data);
     cachedCandles = data.candles || [];
     renderChart(cachedCandles);
+    updatePositionSize();
 
   } catch (err) {
     console.error("Stock load error:", err);
@@ -308,57 +321,124 @@ function renderStockDetails(data) {
 
   document.getElementById("det-setup").textContent = pred.setup;
 
-  // Probabilities & Confidence
-  document.getElementById("det-prob-up").textContent = `${pred.probability_up}%`;
-  document.getElementById("det-prob-down").textContent = `${pred.probability_down}%`;
+  // Price change vs prior session close
+  const lv = pred.levels || {};
+  if (lv.prev_day_close) {
+    const chg = ind.close - lv.prev_day_close;
+    const pctChg = (chg / lv.prev_day_close * 100).toFixed(2);
+    chgEl.textContent = `${chg >= 0 ? "+" : ""}${chg.toFixed(1)} (${chg >= 0 ? "+" : ""}${pctChg}%)`;
+    chgEl.className = `quote-change ${chg >= 0 ? "up" : "down"}`;
+  } else {
+    chgEl.textContent = "--";
+  }
+
+  // Probability: only shown when measured by backtest.py
+  const calibrated = pred.probability_up !== null && pred.probability_up !== undefined;
+  document.getElementById("det-prob-up").textContent = calibrated ? `${pred.probability_up}%` : "未検証";
+  document.getElementById("det-prob-down").textContent = calibrated ? `${pred.probability_down}%` : "未検証";
+  document.getElementById("det-meter-fill").style.width = calibrated ? `${pred.probability_up}%` : "50%";
+  document.getElementById("det-prob-source").textContent = calibrated
+    ? `根拠: ${pred.probability_source}`
+    : "確率は未検証です — `python backtest.py` を実行すると実績ベースの確率が表示されます";
   document.getElementById("det-confidence").textContent = `${pred.confidence}%`;
-  document.getElementById("det-meter-fill").style.width = `${pred.probability_up}%`;
-  // AGENT BADGE ROW (EN labels only)
+  document.getElementById("det-score").textContent = pred.score > 0 ? `+${pred.score}` : `${pred.score}`;
+
+  // Warnings
+  document.getElementById("det-warnings").innerHTML =
+    (pred.warnings || []).map(w => `<li>${esc(w)}</li>`).join("");
+
+  // Agent badges
   const agentList = Array.isArray(pred.agents) ? pred.agents : [];
-  const badgeRow = document.getElementById('agent-badge-row');
-  badgeRow.innerHTML = agentList.map(a => {
-    const color = a.score > 0 ? 'var(--buy)' : (a.score < 0 ? 'var(--sell)' : '#aaa');
-    return `<span class="agent-badge" data-agent="${a.agent}">${a.agent.toUpperCase()} <span style="color:${color};font-weight:bold">${a.score > 0 ? '+' : ''}${a.score}</span></span>`;
-  }).join(' ');
+  document.getElementById("agent-badge-row").innerHTML = agentList.map(a => {
+    const color = a.score > 0 ? "var(--buy)" : (a.score < 0 ? "var(--sell)" : "#aaa");
+    return `<span class="agent-badge" data-agent="${esc(a.agent)}">${esc(a.agent.toUpperCase())} <span style="color:${color};font-weight:bold">${a.active ? (a.score > 0 ? "+" : "") + a.score : "n/a"}</span></span>`;
+  }).join(" ");
 
-  // Order Execution Brackets
-  document.getElementById("det-entry").textContent = `¥${pred.entry_price.toLocaleString()}`;
-  document.getElementById("det-stop").textContent = `¥${pred.stop_loss.toLocaleString()}`;
-  document.getElementById("det-target1").textContent = `¥${pred.target1.toLocaleString()}`;
-  document.getElementById("det-target2").textContent = `¥${pred.target2.toLocaleString()}`;
-  document.getElementById("det-rr").textContent = pred.risk_reward;
+  // Agent breakdown with reasons
+  document.getElementById("agent-rows").innerHTML = agentList.map(a => {
+    const pct = Math.max(4, Math.min(96, 50 + a.score / 2));
+    const col = a.score >= 0 ? "var(--buy)" : "var(--sell)";
+    return `<div class="factor-row agent-row ${a.active ? "" : "inactive"}">
+      <span class="f-name">${esc(a.label)} ×${a.weight}<span class="agent-reasons">${esc((a.reasons || []).join(" · "))}</span></span>
+      <div class="f-bar-wrap"><div class="f-bar" style="width:${pct}%;background:${col}"></div></div>
+      <span class="f-val" style="color:${col}">${a.active ? (a.score > 0 ? "+" : "") + a.score : "--"}</span>
+    </div>`;
+  }).join("");
 
-  // 5 Factors Matrix
-  const factorMap = [
-    { id: "f-trend", val: pred.factors.trend, max: 30 },
-    { id: "f-momentum", val: pred.factors.momentum, max: 25 },
-    { id: "f-volatility", val: pred.factors.volatility, max: 20 },
-    { id: "f-volume", val: pred.factors.volume, max: 15 },
-    { id: "f-macro", val: pred.factors.macro, max: 10 }
-  ];
+  // Order brackets (only for BUY / SELL)
+  const br = pred.brackets;
+  document.getElementById("det-entry").textContent = br ? yen(br.entry_price) : "¥--";
+  document.getElementById("det-stop").textContent = br ? yen(br.stop_loss) : "¥--";
+  document.getElementById("det-target1").textContent = br ? yen(br.target1) : "¥--";
+  document.getElementById("det-target2").textContent = br ? yen(br.target2) : "¥--";
+  document.getElementById("det-rr").textContent = br ? br.risk_reward : "1:--";
 
-  factorMap.forEach(f => {
-    const bar = document.getElementById(f.id);
-    const valText = document.getElementById(`${f.id}-val`);
-    const pct = Math.max(6, Math.min(94, 50 + (f.val / f.max) * 44));
-    bar.style.width = `${pct}%`;
-    bar.style.background = f.val >= 0 ? "var(--buy)" : "var(--sell)";
-    const sign = f.val > 0 ? "+" : "";
-    valText.textContent = `${sign}${f.val}`;
-    valText.style.color = f.val >= 0 ? "var(--buy)" : "var(--sell)";
+  // Intraday levels
+  const rows = [
+    ["limit-up", "ストップ高 (値幅上限)", lv.limit_up],
+    ["", "VWAP +2σ", lv.vwap_upper2],
+    ["", "VWAP +1σ", lv.vwap_upper1],
+    ["vwap", "VWAP (当日)", lv.vwap],
+    ["", "VWAP −1σ", lv.vwap_lower1],
+    ["", "VWAP −2σ", lv.vwap_lower2],
+    ["", lv.or_complete ? "寄付30分 高値 (OR)" : "寄付30分 高値 (形成中)", lv.or_high],
+    ["", lv.or_complete ? "寄付30分 安値 (OR)" : "寄付30分 安値 (形成中)", lv.or_low],
+    ["", "前日高値", lv.prev_day_high],
+    ["", "前日安値", lv.prev_day_low],
+    ["", "前日終値", lv.prev_day_close],
+    ["limit-down", "ストップ安 (値幅下限)", lv.limit_down],
+  ].filter(r => r[2] !== null && r[2] !== undefined);
+  document.getElementById("levels-table").innerHTML = rows.map(([cls, name, v]) =>
+    `<div class="pivot-row lvl ${cls}"><span class="p-lvl">${name}</span><span class="p-price">${yen(v)}</span></div>`
+  ).join("");
+
+  // Floor pivots
+  ["R2", "R1", "P", "S1", "S2"].forEach(k => {
+    document.getElementById(`p-${k.toLowerCase()}`).textContent = pivots ? yen(pivots[k]) : "¥--";
   });
 
-  // Floor Pivots
-  document.getElementById("p-r2").textContent = `¥${pivots.R2}`;
-  document.getElementById("p-r1").textContent = `¥${pivots.R1}`;
-  document.getElementById("p-p").textContent = `¥${pivots.P}`;
-  document.getElementById("p-s1").textContent = `¥${pivots.S1}`;
-  document.getElementById("p-s2").textContent = `¥${pivots.S2}`;
+  const lastBar = document.getElementById("last-bar");
+  if (lastBar && data.last_bar) {
+    const t = new Date(data.last_bar).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    lastBar.textContent = `最終足 ${t} JST`;
+  }
+}
+
+// Position sizing (fixed-fractional, 100-share units) via /api/position-size
+async function updatePositionSize() {
+  const out = document.getElementById("size-result");
+  const account = document.getElementById("size-account").value;
+  const risk = document.getElementById("size-risk").value;
+  const maxcap = document.getElementById("size-maxcap").value;
+  lsSet("kabutrader_size", JSON.stringify({ account, risk, maxcap }));
+
+  const br = cachedDetail && cachedDetail.prediction && cachedDetail.prediction.brackets;
+  if (!br) {
+    out.innerHTML = `<span class="muted">様子見シグナル — エントリーなし</span>`;
+    return;
+  }
+  try {
+    const q = new URLSearchParams({ account, risk_pct: risk, entry: br.entry_price, stop: br.stop_loss, max_capital_pct: maxcap });
+    const res = await fetch(`/api/position-size?${q}`);
+    const r = await res.json();
+    if (r.error) { out.textContent = r.error; return; }
+    if (r.shares === 0) {
+      out.innerHTML = `<strong>0株</strong> <span class="muted">— ${esc(r.limited_by)} (1株あたりリスク ¥${r.risk_per_share})</span>`;
+      return;
+    }
+    out.innerHTML = `推奨 <strong>${r.shares.toLocaleString()}株</strong> (${r.lots}単元) · 想定損失 ¥${r.risk_jpy.toLocaleString()} / 許容 ¥${r.risk_budget.toLocaleString()} · 必要資金 ¥${r.capital_jpy.toLocaleString()} <span class="muted">(${r.limited_by === "capital" ? "資金で上限" : "リスクで上限"})</span>`;
+  } catch (err) {
+    out.textContent = "株数計算に失敗しました";
+  }
 }
 
 // Chart Renderer using LightweightCharts with dynamic color mode
 function renderChart(candles) {
   const container = document.getElementById("chart-container");
+  if (chartInstance) {
+    chartInstance.remove();
+    chartInstance = null;
+  }
   container.innerHTML = "";
 
   if (!candles || candles.length === 0) {
@@ -435,13 +515,25 @@ function renderChart(candles) {
       color: c.close >= c.open ? volUpColor : volDownColor
     })));
 
-    chartInstance.timeScale().fitContent();
-
-    window.addEventListener("resize", () => {
-      if (chartInstance && container) {
-        chartInstance.applyOptions({ width: container.clientWidth });
-      }
+    // Session VWAP: one series per session so lines don't bridge the overnight gap
+    const vwapPts = (cachedDetail && cachedDetail.vwap) || [];
+    const bySession = {};
+    vwapPts.forEach(p => { (bySession[p.session] = bySession[p.session] || []).push({ time: p.time, value: p.value }); });
+    Object.values(bySession).forEach(pts => {
+      const ls = chartInstance.addLineSeries({ color: "#f5b544", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      ls.setData(pts);
     });
+
+    const br = cachedDetail && cachedDetail.prediction && cachedDetail.prediction.brackets;
+    if (br) {
+      const pl = (price, color, title, style) => candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title });
+      pl(br.entry_price, "#e9edf5", "Entry", 2);
+      pl(br.stop_loss, "#ff545a", "Stop", 0);
+      pl(br.target1, "#00e0b8", "T1", 2);
+      pl(br.target2, "#00e0b8", "T2", 2);
+    }
+
+    chartInstance.timeScale().fitContent();
 
   } catch (e) {
     console.error("Lightweight chart error, using canvas fallback:", e);
@@ -494,13 +586,36 @@ function renderCanvasChart(container, candles, upColor, downColor) {
 
 // Event Listeners Setup
 document.addEventListener("DOMContentLoaded", () => {
+  try {
+    const saved = JSON.parse(lsGet("kabutrader_size", "null"));
+    if (saved) {
+      document.getElementById("size-account").value = saved.account;
+      document.getElementById("size-risk").value = saved.risk;
+      document.getElementById("size-maxcap").value = saved.maxcap;
+    }
+  } catch (e) { /* ignore bad saved state */ }
+  ["size-account", "size-risk", "size-maxcap"].forEach(id =>
+    document.getElementById(id).addEventListener("change", updatePositionSize));
+
   applyColorMode(colorMode);
+  loadSession();
   loadMacro();
   loadScreener();
   selectStock(currentSymbol);
 
-  // Auto-refresh macro every 30s
-  setInterval(loadMacro, 30000);
+  window.addEventListener("resize", () => {
+    const container = document.getElementById("chart-container");
+    if (chartInstance && container) chartInstance.applyOptions({ width: container.clientWidth });
+  });
+
+  setInterval(loadSession, 30000);
+  setInterval(loadMacro, 60000);
+  // While the market is open, refresh the scanner and the selected stock every minute
+  setInterval(() => {
+    if (!isMarketOpen()) return;
+    loadScreener();
+    selectStock(currentSymbol);
+  }, 60000);
 
   // Color Mode Toggle Button
   document.getElementById("btn-mode-toggle").addEventListener("click", () => {
@@ -529,7 +644,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Timeframe Buttons (15m Intraday vs 1d Daily)
+  // Timeframe Buttons (5m / 15m intraday, 1d swing context)
   document.querySelectorAll(".tf-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("active"));

@@ -1,279 +1,278 @@
 """
 Flask Backend for Japan Day Trading Terminal
-Serves real-time data, technical indicators, predictive quant models, and day-trade execution plans.
+Serves market data, intraday indicators, agent signals, tick-rounded brackets and position sizing.
 """
 
-import time
 import logging
-from flask import Flask, render_template, jsonify, request
-import yfinance as yf
-import pandas as pd
+import os
+import re
+import time
+from datetime import datetime
+
 import numpy as np
+from flask import Flask, render_template, jsonify, request
 
 from universe import STOCKS_UNIVERSE, MACRO_ASSETS
 from quant_engine import calculate_indicators, generate_directional_prediction, calculate_pivot_points
+from market_rules import JST, position_size, session_status
+from data_provider import get_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("japan-trading-app")
 
 app = Flask(__name__)
+provider = get_provider()
 
-# In-memory cache to stay fast and avoid rate-limits
 CACHE = {
     "macro": {"timestamp": 0, "data": None},
     "screener": {"timestamp": 0, "data": None},
-    "stocks": {} # symbol -> {timestamp, data}
 }
-CACHE_TTL_MACRO = 60      # 1 minute
-CACHE_TTL_SCREENER = 120   # 2 minutes
-CACHE_TTL_STOCK = 60      # 1 minute
+CACHE_TTL_MACRO = 60
+CACHE_TTL_SCREENER = 60
+
+SCREENER_INTERVAL = "15m"
+INTRADAY_PERIOD = "30d"   # ~600 bars of 15m: enough EMA50 warm-up and 10-session RVol baseline
+CHART_SESSIONS = 5
+JST_OFFSET_SEC = 9 * 3600  # lightweight-charts renders epoch seconds as UTC; shift so axis reads JST
+
+SYMBOL_RE = re.compile(r"^[0-9A-Z]{4}(\.T)?$")
+UNIVERSE_BY_SYMBOL = {s["symbol"]: s for s in STOCKS_UNIVERSE}
+
+
+def _pct_change(series):
+    s = series.dropna()
+    if len(s) < 2:
+        return None
+    curr, prev = float(s.iloc[-1]), float(s.iloc[-2])
+    return {"price": curr, "change": curr - prev, "change_pct": (curr - prev) / prev * 100}
+
 
 def get_macro_context():
     now = time.time()
-    if CACHE["macro"]["data"] and (now - CACHE["macro"]["timestamp"] < CACHE_TTL_MACRO):
+    if CACHE["macro"]["data"] and now - CACHE["macro"]["timestamp"] < CACHE_TTL_MACRO:
         return CACHE["macro"]["data"]
 
-    macro_data = {}
     try:
-        tickers = [m["symbol"] for m in MACRO_ASSETS.values()]
-        data = yf.download(tickers, period="5d", interval="1d", progress=False)
-        close = data['Close']
+        frames = provider.history_batch([m["symbol"] for m in MACRO_ASSETS.values()], interval="1d", period="5d")
+        macro = {"as_of": datetime.now(JST).isoformat(timespec="seconds")}
+        for key, nd in (("nikkei", 2), ("usdjpy", 3)):
+            sym = MACRO_ASSETS[key]["symbol"]
+            chg = _pct_change(frames[sym]["Close"]) if sym in frames else None
+            if chg:
+                macro[key] = {"price": round(chg["price"], nd), "change": round(chg["change"], nd),
+                              "change_pct": round(chg["change_pct"], 2)}
+                macro[f"{key}_change_pct"] = chg["change_pct"]
+        if "nikkei" not in macro:
+            raise RuntimeError("Nikkei 225 data unavailable")
 
-        # Nikkei 225
-        if '^N225' in close.columns:
-            n225 = close['^N225'].dropna()
-            if len(n225) >= 2:
-                curr = float(n225.iloc[-1])
-                prev = float(n225.iloc[-2])
-                chg = curr - prev
-                chg_pct = (chg / prev) * 100
-                macro_data["nikkei"] = {
-                    "price": round(curr, 2),
-                    "change": round(chg, 2),
-                    "change_pct": round(chg_pct, 2)
-                }
-                macro_data["nikkei_change_pct"] = chg_pct
-
-        # USD/JPY
-        if 'JPY=X' in close.columns:
-            jpy = close['JPY=X'].dropna()
-            if len(jpy) >= 2:
-                curr = float(jpy.iloc[-1])
-                prev = float(jpy.iloc[-2])
-                chg = curr - prev
-                chg_pct = (chg / prev) * 100
-                macro_data["usdjpy"] = {
-                    "price": round(curr, 3),
-                    "change": round(chg, 3),
-                    "change_pct": round(chg_pct, 2)
-                }
-                macro_data["usdjpy_change_pct"] = chg_pct
-
-        # Market Regime
-        nikkei_pct = macro_data.get("nikkei_change_pct", 0)
-        usdjpy_pct = macro_data.get("usdjpy_change_pct", 0)
-        if nikkei_pct > 0.5 and usdjpy_pct > 0.2:
-            regime = "Risk-On (Export Tailwind)"
-            bias = "BULLISH"
-        elif nikkei_pct > 0.2:
-            regime = "Mildly Bullish"
-            bias = "BULLISH"
-        elif nikkei_pct < -0.5:
-            regime = "Risk-Off (Caution / Selective Shorts)"
-            bias = "BEARISH"
+        nk = macro.get("nikkei_change_pct", 0)
+        fx = macro.get("usdjpy_change_pct", 0)
+        if nk > 0.5 and fx > 0.2:
+            macro["regime"], macro["bias"] = "Risk-On (Export Tailwind)", "BULLISH"
+        elif nk > 0.2:
+            macro["regime"], macro["bias"] = "Mildly Bullish", "BULLISH"
+        elif nk < -0.5:
+            macro["regime"], macro["bias"] = "Risk-Off (Caution / Selective Shorts)", "BEARISH"
         else:
-            regime = "Neutral / Range-Bound"
-            bias = "NEUTRAL"
-
-        macro_data["regime"] = regime
-        macro_data["bias"] = bias
-        CACHE["macro"]["data"] = macro_data
-        CACHE["macro"]["timestamp"] = now
+            macro["regime"], macro["bias"] = "Neutral / Range-Bound", "NEUTRAL"
+        CACHE["macro"] = {"timestamp": now, "data": macro}
     except Exception as e:
         logger.error(f"Error fetching macro: {e}")
-        if not CACHE["macro"]["data"]:
-            macro_data = {
-                "nikkei": {"price": 39500.0, "change": 180.0, "change_pct": 0.46},
-                "usdjpy": {"price": 155.20, "change": 0.35, "change_pct": 0.23},
-                "regime": "Moderate Bullish",
-                "bias": "BULLISH",
-                "nikkei_change_pct": 0.46,
-                "usdjpy_change_pct": 0.23
-            }
-            CACHE["macro"]["data"] = macro_data
+        if CACHE["macro"]["data"]:
+            # Serve the last real values, clearly marked stale — never invented numbers
+            stale = dict(CACHE["macro"]["data"], stale=True)
+            return stale
+        return {"error": "macro data unavailable", "stale": True}
 
     return CACHE["macro"]["data"]
 
+
 def format_ticker_symbol(code_or_symbol):
     code = code_or_symbol.strip().upper()
-    if not code.endswith(".T") and not code.startswith("^") and "=" not in code:
+    if not code.endswith(".T"):
         code = f"{code}.T"
     return code
+
+
+def data_status():
+    return {"provider": provider.name, "realtime": provider.realtime,
+            "delay_minutes": provider.delay_minutes}
+
 
 @app.route("/")
 def index():
     return render_template("index.html", stocks=STOCKS_UNIVERSE)
 
+
 @app.route("/api/macro")
 def api_macro():
     return jsonify(get_macro_context())
 
+
+@app.route("/api/session")
+def api_session():
+    return jsonify(dict(session_status(), data=data_status()))
+
+
+def _analyze_screener():
+    macro = get_macro_context()
+    symbols = [s["symbol"] for s in STOCKS_UNIVERSE]
+    try:
+        frames = provider.history_batch(symbols, interval=SCREENER_INTERVAL, period=INTRADAY_PERIOD)
+    except Exception as e:
+        logger.error(f"Batch fetch error: {e}")
+        frames = {}
+
+    results = []
+    for meta in STOCKS_UNIVERSE:
+        sym = meta["symbol"]
+        try:
+            df = frames.get(sym)
+            calc = calculate_indicators(df, intraday=True) if df is not None else None
+            if calc is None:
+                continue
+            pred = generate_directional_prediction(calc, macro, meta, SCREENER_INTERVAL)
+            ind, lv = pred["indicators"], pred["levels"]
+            price = ind["close"]
+            prev_close = lv["prev_day_close"]
+            chg = price - prev_close if prev_close else 0.0
+            vwap_dev = ((price - lv["vwap"]) / lv["vwap"] * 100) if lv["vwap"] else None
+            gap = ((lv["session_open"] - prev_close) / prev_close * 100) if prev_close and lv["session_open"] else None
+            results.append({
+                **{k: meta[k] for k in ("symbol", "code", "name", "name_jp", "cap", "sector")},
+                "price": price,
+                "change": round(chg, 1),
+                "change_pct": round(chg / prev_close * 100, 2) if prev_close else 0.0,
+                "gap_pct": round(gap, 2) if gap is not None else None,
+                "vwap_dev_pct": round(vwap_dev, 2) if vwap_dev is not None else None,
+                "rvol": ind["rvol"],
+                "rsi": ind["rsi"],
+                "score": pred["score"],
+                "signal": pred["signal"],
+                "signal_jp": pred["signal_jp"],
+                "mark": pred["mark"],
+                "action": pred["action"],
+                "action_jp": pred["action_jp"],
+                "action_en": pred["action_en"],
+                "prob_up": pred["probability_up"],
+                "prob_down": pred["probability_down"],
+                "setup": pred["setup"],
+                "near_limit": any("ストップ" in w for w in pred["warnings"]),
+                "last_bar": calc.index[-1].isoformat(),
+            })
+        except Exception as ex:
+            logger.warning(f"Error analyzing {sym}: {ex}")
+
+    results.sort(key=lambda x: abs(x["score"]), reverse=True)
+    return results
+
+
 @app.route("/api/screener")
 def api_screener():
     now = time.time()
-    cap_filter = request.args.get("cap", "all").lower()
-
-    if CACHE["screener"]["data"] and (now - CACHE["screener"]["timestamp"] < CACHE_TTL_SCREENER):
+    if CACHE["screener"]["data"] is not None and now - CACHE["screener"]["timestamp"] < CACHE_TTL_SCREENER:
         data = CACHE["screener"]["data"]
     else:
-        macro = get_macro_context()
-        symbols = [s["symbol"] for s in STOCKS_UNIVERSE]
-        
-        # Batch download daily data
-        try:
-            batch = yf.download(symbols, period="30d", interval="1d", progress=False, group_by="ticker")
-        except Exception as e:
-            logger.error(f"Batch fetch error: {e}")
-            batch = {}
+        data = _analyze_screener()
+        CACHE["screener"] = {"timestamp": now, "data": data}
 
-        results = []
-        for meta in STOCKS_UNIVERSE:
-            sym = meta["symbol"]
-            try:
-                if sym in batch:
-                    df = batch[sym].dropna(how="all")
-                else:
-                    t = yf.Ticker(sym)
-                    df = t.history(period="30d", interval="1d")
-
-                if len(df) < 5:
-                    continue
-
-                df_calc = calculate_indicators(df)
-                pred = generate_directional_prediction(df_calc, macro)
-                
-                curr_price = float(df['Close'].iloc[-1])
-                prev_price = float(df['Close'].iloc[-2])
-                chg = curr_price - prev_price
-                chg_pct = (chg / prev_price) * 100
-
-                rvol = pred["indicators"]["rvol"]
-                rsi = pred["indicators"]["rsi"]
-
-                results.append({
-                    "symbol": sym,
-                    "code": meta["code"],
-                    "name": meta["name"],
-                    "name_jp": meta["name_jp"],
-                    "cap": meta["cap"],
-                    "sector": meta["sector"],
-                    "price": round(curr_price, 1),
-                    "change": round(chg, 1),
-                    "change_pct": round(chg_pct, 2),
-                    "rvol": rvol,
-                    "rsi": rsi,
-                    "score": pred["score"],
-                    "signal": pred["signal"],
-                    "signal_jp": pred["signal_jp"],
-                    "mark": pred["mark"],
-                    "action": pred["action"],
-                    "action_jp": pred["action_jp"],
-                    "action_en": pred["signal"],  # BUY/SELL/HOLD for filtering
-                    "prob_up": pred["probability_up"],
-                    "prob_down": pred["probability_down"],
-                    "setup": pred["setup"]
-                })
-            except Exception as ex:
-                logger.warning(f"Error analyzing {sym}: {ex}")
-
-        # Sort by absolute prediction score & momentum
-        results.sort(key=lambda x: abs(x["score"]), reverse=True)
-        CACHE["screener"]["data"] = results
-        CACHE["screener"]["timestamp"] = now
-        data = results
-
-    # Apply cap filter if requested
+    cap_filter = request.args.get("cap", "all").lower()
     if cap_filter != "all":
         data = [d for d in data if d["cap"].lower() == cap_filter]
-
-    # Apply action filter if requested (BUY, HOLD, SELL)
     action_filter = request.args.get("action", "all").upper()
     if action_filter != "ALL":
         data = [d for d in data if d["action_en"] == action_filter]
 
-    return jsonify({"stocks": data, "count": len(data)})
+    return jsonify({"stocks": data, "count": len(data), "interval": SCREENER_INTERVAL,
+                    "data": data_status()})
+
+
+def _chart_payload(calc, intraday):
+    if intraday:
+        sessions = calc["Session"].unique()[-CHART_SESSIONS:]
+        calc = calc[calc["Session"].isin(sessions)]
+    else:
+        calc = calc.iloc[-120:]
+    offset = JST_OFFSET_SEC if intraday else 0
+    candles, vwap = [], []
+    for idx, row in calc.iterrows():
+        ts = int(idx.timestamp()) + offset
+        candles.append({"time": ts, "open": round(float(row["Open"]), 1), "high": round(float(row["High"]), 1),
+                        "low": round(float(row["Low"]), 1), "close": round(float(row["Close"]), 1),
+                        "volume": int(row["Volume"])})
+        if intraday and np.isfinite(row["VWAP"]):
+            vwap.append({"time": ts, "value": round(float(row["VWAP"]), 2),
+                         "session": str(row["Session"])})
+    return candles, vwap
+
 
 @app.route("/api/stock/<symbol>")
 def api_stock_detail(symbol):
     sym = format_ticker_symbol(symbol)
-    interval = request.args.get("interval", "15m") # 15m or 1d
-    period = "5d" if interval in ["5m", "15m"] else "60d"
+    if not SYMBOL_RE.match(sym):
+        return jsonify({"success": False, "error": "Invalid TSE code (expected 4 characters, e.g. 7203)"}), 400
+
+    interval = request.args.get("interval", "15m")
+    if interval not in ("5m", "15m", "1d"):
+        return jsonify({"success": False, "error": "interval must be 5m, 15m or 1d"}), 400
+    intraday = interval != "1d"
+    period = INTRADAY_PERIOD if intraday else "1y"
 
     macro = get_macro_context()
-    
+    meta = UNIVERSE_BY_SYMBOL.get(sym)
     try:
-        t = yf.Ticker(sym)
-        # Intraday / timeframe candles
-        df_chart = t.history(period=period, interval=interval)
-        if len(df_chart) == 0:
-            # fallback to 1d
-            df_chart = t.history(period="60d", interval="1d")
+        df = provider.history(sym, interval=interval, period=period)
+        if len(df) == 0:
+            return jsonify({"success": False, "error": f"No data for {sym}"}), 404
+        if meta is None:
+            info = provider.info(sym)
+            meta = {"symbol": sym, "code": sym.replace(".T", ""),
+                    "name": info.get("shortName", sym), "name_jp": info.get("longName", sym),
+                    "cap": "Custom", "sector": info.get("sector", "Custom Equity"),
+                    # Unknown membership: standard (coarser) tick table is the safe default
+                    "topix500": False, "fx_beta": 0.0}
 
-        # Daily candles for robust indicators and pivots
-        df_daily = t.history(period="60d", interval="1d")
-        df_daily_calc = calculate_indicators(df_daily)
-        pred = generate_directional_prediction(df_daily_calc, macro)
-
-        # Pivot points from prior complete daily session
-        if len(df_daily) >= 2:
-            prev_row = df_daily.iloc[-2]
-            pivots = calculate_pivot_points(float(prev_row['High']), float(prev_row['Low']), float(prev_row['Close']))
-        else:
-            cur = float(df_daily['Close'].iloc[-1])
-            pivots = calculate_pivot_points(cur*1.01, cur*0.99, cur)
-
-        # Format candles for chart
-        candles = []
-        for idx, row in df_chart.iterrows():
-            # handle timestamp
-            if hasattr(idx, 'timestamp'):
-                ts = int(idx.timestamp())
-            else:
-                ts = int(time.mktime(idx.timetuple()))
-
-            candles.append({
-                "time": ts,
-                "open": round(float(row['Open']), 1),
-                "high": round(float(row['High']), 1),
-                "low": round(float(row['Low']), 1),
-                "close": round(float(row['Close']), 1),
-                "volume": int(row['Volume'])
-            })
-
-        # Match metadata
-        meta = next((s for s in STOCKS_UNIVERSE if s["symbol"] == sym), None)
-        if not meta:
-            meta = {
-                "symbol": sym,
-                "code": sym.replace(".T", ""),
-                "name": t.info.get("shortName", sym),
-                "name_jp": t.info.get("longName", sym),
-                "cap": "Custom",
-                "sector": t.info.get("sector", "Custom Equity")
-            }
+        calc = calculate_indicators(df, intraday=intraday)
+        if calc is None:
+            return jsonify({"success": False, "error": "Not enough bars to analyse"}), 422
+        pred = generate_directional_prediction(calc, macro, meta, interval)
+        lv = pred["levels"]
+        pivots = None
+        if lv["prev_day_high"] and lv["prev_day_low"] and lv["prev_day_close"]:
+            pivots = calculate_pivot_points(lv["prev_day_high"], lv["prev_day_low"], lv["prev_day_close"],
+                                            meta.get("topix500", False))
+        candles, vwap = _chart_payload(calc, intraday)
 
         return jsonify({
             "success": True,
             "meta": meta,
             "interval": interval,
             "candles": candles,
+            "vwap": vwap,
             "prediction": pred,
-            "pivots": pivots
+            "pivots": pivots,
+            "last_bar": calc.index[-1].isoformat(),
+            "data": data_status(),
         })
-
     except Exception as e:
-        logger.error(f"Error fetching stock detail for {sym}: {e}")
+        logger.exception(f"Error fetching stock detail for {sym}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+@app.route("/api/position-size")
+def api_position_size():
+    try:
+        args = {k: float(request.args[k]) for k in ("account", "risk_pct", "entry", "stop")}
+    except (KeyError, ValueError):
+        return jsonify({"error": "account, risk_pct, entry and stop are required numbers"}), 400
+    max_cap = float(request.args.get("max_capital_pct", 100))
+    return jsonify(position_size(args["account"], args["risk_pct"], args["entry"], args["stop"],
+                                 max_capital_pct=max_cap))
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Bind to localhost and keep the Werkzeug debugger off unless explicitly requested:
+    # the debugger allows arbitrary code execution if the port is reachable.
+    app.run(host=os.environ.get("KABU_HOST", "127.0.0.1"),
+            port=int(os.environ.get("KABU_PORT", 5000)),
+            debug=os.environ.get("KABU_DEBUG") == "1")

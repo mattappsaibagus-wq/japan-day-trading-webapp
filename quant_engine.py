@@ -1,303 +1,342 @@
 """
-Quantitative Analysis & Predictive Signal Engine for Japan Stocks
-Calculates technical indicators, multi-agent directional scores, pivot levels, and day-trading setups.
+Quantitative Analysis & Signal Engine for Japan Stocks
+Computes intraday-aware indicators, fuses rule-based agent scores, and builds
+tick-rounded day-trade brackets. Every indicator is causal (uses only bars up to
+and including the current one) so the same code drives the live view and the backtest.
 """
 
-import math
+import json
+import os
 import numpy as np
 import pandas as pd
-import yfinance as yf
-from datetime import datetime, timedelta
 
-# Import agents
-from agents.kronos_agent import KronosAgent
-from agents.trend_agent import TrendAgent
-from agents.momentum_agent import MomentumAgent
-from agents.breakout_agent import BreakoutAgent
-from agents.macro_agent import MacroAgent
-from agents.fusion import AgentFusion
+from agents import default_fusion
+from market_rules import JST, round_to_tick, price_limits
 
-def clean_series(s):
-    if isinstance(s, pd.DataFrame):
-        return s.iloc[:, 0]
-    return s
+MIN_BARS = 60
+OPENING_RANGE_MINUTES = 30
+CALIBRATION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
 
-def calculate_indicators(df):
+SETUPS = {
+    "STRONG BUY": ("順張りブレイクアウト（VWAP上・ORブレイク追随）", "買いエントリー"),
+    "BUY": ("押し目買い（VWAP / EMA21 反発狙い）", "押し目買い"),
+    "STRONG SELL": ("下値ブレイクダウン（VWAP下・OR安値割れ追随）", "空売りエントリー"),
+    "SELL": ("戻り売り（VWAP / レジスタンス反落）", "戻り売り"),
+    "HOLD": ("レンジ相場 — ブレイク待ち", "様子見"),
+}
+
+
+def _to_jst_index(df):
+    idx = df.index
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_convert(JST)
+    df = df.copy()
+    df.index = idx
+    return df
+
+
+def infer_is_intraday(df):
+    if len(df) < 3:
+        return False
+    step = pd.Series(df.index).diff().dropna().median()
+    return step < pd.Timedelta(hours=12)
+
+
+def calculate_indicators(df, intraday=None):
     """
-    Computes technical indicators on OHLCV DataFrame.
-    Expects columns: Open, High, Low, Close, Volume
+    Computes indicators on an OHLCV DataFrame (columns Open, High, Low, Close, Volume).
+    Intraday frames get session-reset VWAP (+σ bands), opening range, running session
+    high/low, prior-session levels and time-of-day relative volume.
     """
     if df is None or len(df) < 15:
         return None
 
-    df = df.copy()
-    close = df['Close']
-    high = df['High']
-    low = df['Low']
-    vol = df['Volume']
+    df = _to_jst_index(df.dropna(subset=["Open", "High", "Low", "Close"]))
+    if intraday is None:
+        intraday = infer_is_intraday(df)
+    df["Volume"] = df["Volume"].fillna(0)
+    close, high, low, vol = df["Close"], df["High"], df["Low"], df["Volume"]
 
-    # EMAs
-    df['EMA9'] = close.ewm(span=9, adjust=False).mean()
-    df['EMA21'] = close.ewm(span=21, adjust=False).mean()
-    df['EMA50'] = close.ewm(span=50, adjust=False).mean()
+    df["EMA9"] = close.ewm(span=9, adjust=False).mean()
+    df["EMA21"] = close.ewm(span=21, adjust=False).mean()
+    df["EMA50"] = close.ewm(span=50, adjust=False).mean()
+    df["EMA21_Slope"] = df["EMA21"].diff(3) / 3
 
-    # RSI (14)
+    # RSI (14), Wilder smoothing
     delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -1 * delta.clip(upper=0)
-    
-    # Simple Wilder's style smoothing
-    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_gain = delta.clip(lower=0).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50.0)
+    df["RSI"] = (100 - 100 / (1 + rs)).fillna(50.0)
 
     # MACD (12, 26, 9)
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema12 - ema26
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+    df["MACD"] = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_Hist"] = df["MACD"] - df["MACD_Signal"]
 
-    # Bollinger Bands (20, 2)
-    sma20 = close.rolling(window=min(20, len(df)), min_periods=5).mean()
-    std20 = close.rolling(window=min(20, len(df)), min_periods=5).std().fillna(close * 0.01)
-    df['BB_Mid'] = sma20
-    df['BB_Upper'] = sma20 + (2 * std20)
-    df['BB_Lower'] = sma20 - (2 * std20)
-    df['BB_Width'] = ((df['BB_Upper'] - df['BB_Lower']) / df['BB_Mid']).fillna(0.02)
-    df['BB_PercentB'] = ((close - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower']).replace(0, np.nan)).fillna(0.5)
+    # Bollinger Bands (20, 2) + squeeze = width in the bottom 20% of the last 120 bars
+    sma20 = close.rolling(20, min_periods=20).mean()
+    std20 = close.rolling(20, min_periods=20).std()
+    df["BB_Upper"] = sma20 + 2 * std20
+    df["BB_Lower"] = sma20 - 2 * std20
+    df["BB_Width"] = (df["BB_Upper"] - df["BB_Lower"]) / sma20
+    df["BB_PercentB"] = (close - df["BB_Lower"]) / (df["BB_Upper"] - df["BB_Lower"]).replace(0, np.nan)
+    width_rank = df["BB_Width"].rolling(120, min_periods=40).rank(pct=True)
+    df["Squeeze"] = (width_rank.shift(1) <= 0.2)
 
-    # ATR (14)
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(window=min(14, len(df)), min_periods=3).mean().bfill().fillna(close * 0.015)
+    prev_close = close.shift(1)
+    if intraday:
+        session = pd.Series(df.index.date, index=df.index)
+        new_session = session.ne(session.shift(1))
+        # Overnight gaps are not intraday volatility: first bar of a session uses its own range
+        prev_close = prev_close.where(~new_session)
+        df["Session"] = session
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    df["ATR"] = tr.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
 
-    # VWAP (if intraday with volume)
-    if 'Volume' in df.columns and (vol > 0).any():
-        typical_price = (high + low + close) / 3
-        df['VWAP'] = (typical_price * vol).cumsum() / vol.cumsum().replace(0, np.nan)
-        df['VWAP'] = df['VWAP'].bfill().fillna(close)
+    if intraday:
+        _add_session_features(df)
     else:
-        df['VWAP'] = df['EMA21']
+        df["VWAP"] = np.nan
+        df["VWAP_SD"] = np.nan
+        avg_vol20 = vol.rolling(20, min_periods=10).mean().shift(1)
+        df["RVol"] = vol / avg_vol20.replace(0, np.nan)
+        df["Prev_Day_High"] = high.shift(1)
+        df["Prev_Day_Low"] = low.shift(1)
+        df["Prev_Day_Close"] = close.shift(1)
+        df["OR_High"] = np.nan
+        df["OR_Low"] = np.nan
+        df["OR_Complete"] = False
+        df["Session_Open"] = df["Open"]
 
-    # RVol (Relative Volume vs 20-period average)
-    avg_vol20 = vol.rolling(window=20).mean().replace(0, np.nan)
-    df['RVol'] = (vol / avg_vol20).fillna(1.0)
-
+    df.attrs["intraday"] = bool(intraday)
     return df
 
-def calculate_pivot_points(prev_high, prev_low, prev_close):
-    """Classic Floor Trader Pivot Points"""
-    p = (prev_high + prev_low + prev_close) / 3.0
-    r1 = (2 * p) - prev_low
-    s1 = (2 * p) - prev_high
-    r2 = p + (prev_high - prev_low)
-    s2 = p - (prev_high - prev_low)
-    return {
-        "P": round(p, 1),
-        "R1": round(r1, 1),
-        "R2": round(r2, 1),
-        "S1": round(s1, 1),
-        "S2": round(s2, 1)
-    }
 
-def generate_directional_prediction(df, macro_context=None):
+def _add_session_features(df):
+    g = df.groupby("Session", sort=False)
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3
+    vol = df["Volume"]
+    cum_vol = g["Volume"].cumsum()
+    cum_pv = (tp * vol).groupby(df["Session"], sort=False).cumsum()
+    cum_p2v = (tp * tp * vol).groupby(df["Session"], sort=False).cumsum()
+    vwap = cum_pv / cum_vol.replace(0, np.nan)
+    var = (cum_p2v / cum_vol.replace(0, np.nan) - vwap ** 2).clip(lower=0)
+    df["VWAP"] = vwap.fillna(tp)
+    df["VWAP_SD"] = np.sqrt(var).fillna(0)
+
+    df["Session_Open"] = g["Open"].transform("first")
+    df["Session_High"] = g["High"].cummax()
+    df["Session_Low"] = g["Low"].cummin()
+
+    # Opening range: running high/low during the first N minutes, frozen afterwards
+    minutes = (df.index.hour * 60 + df.index.minute) - (9 * 60)
+    in_or = pd.Series(minutes < OPENING_RANGE_MINUTES, index=df.index)
+    or_high = df["High"].where(in_or).groupby(df["Session"], sort=False).cummax()
+    or_low = df["Low"].where(in_or).groupby(df["Session"], sort=False).cummin()
+    df["OR_High"] = or_high.groupby(df["Session"], sort=False).ffill()
+    df["OR_Low"] = or_low.groupby(df["Session"], sort=False).ffill()
+    df["OR_Complete"] = ~in_or
+
+    # Prior-session levels
+    daily = g.agg(H=("High", "max"), L=("Low", "min"), C=("Close", "last")).shift(1)
+    df["Prev_Day_High"] = df["Session"].map(daily["H"])
+    df["Prev_Day_Low"] = df["Session"].map(daily["L"])
+    df["Prev_Day_Close"] = df["Session"].map(daily["C"])
+
+    # Time-of-day RVol: today's cumulative volume vs. the average cumulative volume
+    # at the same bar of the previous 10 sessions (avoids the open-auction volume spike bias)
+    bar_idx = g.cumcount()
+    hist = pd.DataFrame({"bar": bar_idx, "cum": cum_vol})
+    baseline = hist.groupby("bar")["cum"].transform(lambda s: s.shift(1).rolling(10, min_periods=2).mean())
+    df["RVol"] = cum_vol / baseline.replace(0, np.nan)
+
+
+def build_features(df, i=-1, macro_context=None, meta=None):
+    row = df.iloc[i]
+    prev = df.iloc[i - 1] if len(df) > 1 else row
+
+    def g(col, r=row):
+        v = r.get(col, np.nan)
+        return float(v) if v is not None and not pd.isna(v) else np.nan
+
+    f = {
+        "intraday": df.attrs.get("intraday", False),
+        "close": g("Close"),
+        "ema9": g("EMA9"), "ema21": g("EMA21"), "ema50": g("EMA50"),
+        "ema21_slope": g("EMA21_Slope"),
+        "rsi": g("RSI"),
+        "macd": g("MACD"), "macd_signal": g("MACD_Signal"),
+        "macd_hist": g("MACD_Hist"), "prev_macd_hist": g("MACD_Hist", prev),
+        "bb_upper": g("BB_Upper"), "bb_lower": g("BB_Lower"), "bb_pct_b": g("BB_PercentB"),
+        "squeeze": bool(row.get("Squeeze", False)),
+        "atr": g("ATR"),
+        "rvol": g("RVol"),
+        "vwap": g("VWAP"), "vwap_sd": g("VWAP_SD"),
+        "or_high": g("OR_High"), "or_low": g("OR_Low"),
+        "or_complete": bool(row.get("OR_Complete", False)),
+        "prev_day_high": g("Prev_Day_High"), "prev_day_low": g("Prev_Day_Low"),
+        "prev_day_close": g("Prev_Day_Close"),
+        "session_open": g("Session_Open"),
+        "fx_beta": (meta or {}).get("fx_beta", 0.0),
+    }
+    if macro_context and not macro_context.get("error"):
+        f["nikkei_chg"] = macro_context.get("nikkei_change_pct")
+        f["usdjpy_chg"] = macro_context.get("usdjpy_change_pct")
+    return f
+
+
+def calculate_pivot_points(prev_high, prev_low, prev_close, topix500=False):
+    """Classic floor-trader pivots, snapped to the tick grid."""
+    p = (prev_high + prev_low + prev_close) / 3.0
+    levels = {
+        "P": p,
+        "R1": 2 * p - prev_low,
+        "S1": 2 * p - prev_high,
+        "R2": p + (prev_high - prev_low),
+        "S2": p - (prev_high - prev_low),
+    }
+    return {k: round_to_tick(v, topix500) for k, v in levels.items()}
+
+
+_calibration_cache = {"mtime": None, "data": None}
+
+
+def load_calibration():
+    try:
+        mtime = os.path.getmtime(CALIBRATION_PATH)
+    except OSError:
+        return None
+    if _calibration_cache["mtime"] != mtime:
+        with open(CALIBRATION_PATH, encoding="utf-8") as fh:
+            _calibration_cache["data"] = json.load(fh)
+        _calibration_cache["mtime"] = mtime
+    return _calibration_cache["data"]
+
+
+def calibrated_probability(score, interval):
     """
-    Multi-Agent Quantitative Predictive Model:
-    Uses Kronos, Trend, Momentum, Breakout, and Macro agents to generate signals.
-    Kronos agent is weighted highest for day/overnight prediction.
-    Returns:
-      - score: -100 to +100 (fused agent score)
-      - signal: STRONG BUY / BUY / HOLD / SELL / STRONG SELL
-      - probability_up: e.g. 74.2%
-      - agents: individual agent outputs
-      - setup: Day trade playbook recommendation
+    Empirical P(price higher after the calibration horizon) for this score bucket,
+    as measured by backtest.py. Returns None if no backtest has been run for this
+    interval or the bucket has too few samples to mean anything.
     """
-    if df is None or len(df) < 5:
+    cal = load_calibration()
+    if not cal or interval not in cal:
+        return None
+    block = cal[interval]
+    for b in block["buckets"]:
+        if b["lo"] <= score < b["hi"] or (b["hi"] >= 100 and score >= b["lo"]):
+            if b["n"] < block.get("min_samples", 50):
+                return None
+            return {"p_up": b["p_up"], "n": b["n"], "horizon_bars": block["horizon_bars"],
+                    "avg_ret_pct": b.get("avg_ret_pct")}
+    return None
+
+
+def build_brackets(action, f, topix500=False, stop_atr=1.2, t1_r=1.5, t2_r=2.6):
+    """ATR stop and R-multiple targets, rounded to valid ticks and clipped to the daily price limits."""
+    close, atr = f["close"], f["atr"]
+    if action not in ("BUY", "SELL") or not np.isfinite(atr) or atr <= 0:
+        return None
+    buffer = max(atr * stop_atr, close * 0.003)
+    base = f["prev_day_close"] if np.isfinite(f.get("prev_day_close", np.nan)) else close
+    limits = price_limits(base)
+    long_ = action == "BUY"
+    sign = 1 if long_ else -1
+
+    entry = round_to_tick(close, topix500)
+    stop = round_to_tick(entry - sign * buffer, topix500, "down" if long_ else "up")
+    risk = abs(entry - stop)
+    t1 = entry + sign * risk * t1_r
+    t2 = entry + sign * risk * t2_r
+    # Targets can't trade beyond limit-up / limit-down
+    if long_:
+        t1, t2 = min(t1, limits["limit_up"]), min(t2, limits["limit_up"])
+    else:
+        t1, t2 = max(t1, limits["limit_down"]), max(t2, limits["limit_down"])
+    t1 = round_to_tick(t1, topix500, "down" if long_ else "up")
+    t2 = round_to_tick(t2, topix500, "down" if long_ else "up")
+    rr = round(abs(t1 - entry) / risk, 2) if risk > 0 else 0.0
+    return {"entry_price": entry, "stop_loss": stop, "target1": t1, "target2": t2,
+            "risk_reward": f"1:{rr}", "risk_per_share": round(risk, 1)}
+
+
+def generate_directional_prediction(df, macro_context=None, meta=None, interval="15m"):
+    """
+    Fuses agent scores on the latest bar of an indicator frame.
+    Returns score (-100..100), signal, action, brackets (None when HOLD),
+    calibrated probability (None until backtest.py has been run), agent outputs and warnings.
+    """
+    meta = meta or {}
+    topix500 = meta.get("topix500", False)
+    if df is None or len(df) < MIN_BARS:
         return {
-            "score": 0,
-            "signal": "HOLD",
-            "signal_jp": "様子見",
-            "mark": "△",
-            "action": "HOLD",
-            "action_jp": "様子見 / 保有",
-            "probability_up": 50.0,
-            "probability_down": 50.0,
-            "confidence": 0.0,
-            "agents": [],
-            "setup": "Insufficient Data",
-            "entry_price": 0.0,
-            "stop_loss": 0.0,
-            "target1": 0.0,
-            "target2": 0.0,
-            "risk_reward": "1:0.0",
-            "factors": {},
-            "indicators": {}
+            "score": 0, "signal": "HOLD", "signal_jp": "様子見", "mark": "△",
+            "action": "HOLD", "action_jp": "様子見", "action_en": "HOLD",
+            "probability_up": None, "probability_down": None, "probability_source": "insufficient data",
+            "confidence": 0.0, "agents": [], "setup": "データ不足 (Insufficient data)",
+            "brackets": None, "factors": {}, "indicators": {}, "levels": {},
+            "warnings": [f"Need at least {MIN_BARS} bars to score"],
         }
 
-    latest = df.iloc[-1]
-    prev = df.iloc[-2]
+    f = build_features(df, -1, macro_context, meta)
+    result = default_fusion().run_all(f)
+    score, signal, action = result["final_score"], result["final_signal"], result["final_action"]
+    setup, action_jp = SETUPS[signal]
 
-    close = float(latest['Close'])
-    ema9 = float(latest['EMA9'])
-    ema21 = float(latest['EMA21'])
-    ema50 = float(latest['EMA50'])
-    rsi = float(latest['RSI'])
-    macd = float(latest['MACD'])
-    macd_signal = float(latest['MACD_Signal'])
-    macd_hist = float(latest['MACD_Hist'])
-    prev_macd_hist = float(prev['MACD_Hist'])
-    bb_upper = float(latest['BB_Upper'])
-    bb_lower = float(latest['BB_Lower'])
-    bb_pct_b = float(latest['BB_PercentB']) if not np.isnan(latest['BB_PercentB']) else 0.5
-    atr = float(latest['ATR'])
-    rvol = float(latest['RVol'])
-    vwap = float(latest['VWAP'])
+    prob = calibrated_probability(score, interval)
+    warnings = []
+    if not f["intraday"]:
+        warnings.append("日足ベースのシグナル (Daily-bar signal — swing context, not an intraday trigger)")
 
-    # Prepare features for agents
-    features = {
-        'close': close,
-        'ema9': ema9,
-        'ema21': ema21,
-        'ema50': ema50,
-        'rsi': rsi,
-        'macd': macd,
-        'macd_signal': macd_signal,
-        'macd_hist': macd_hist,
-        'bb_upper': bb_upper,
-        'bb_lower': bb_lower,
-        'bb_pct_b': bb_pct_b,
-        'atr': atr,
-        'rvol': rvol,
-        'vwap': vwap,
-        'prev_close': float(prev['Close']),
-    }
+    base = f["prev_day_close"] if np.isfinite(f["prev_day_close"]) else f["close"]
+    limits = price_limits(base)
+    if f["atr"] > 0:
+        if (limits["limit_up"] - f["close"]) < 2 * f["atr"]:
+            warnings.append("ストップ高接近 (Within 2 ATR of limit-up)")
+        if (f["close"] - limits["limit_down"]) < 2 * f["atr"]:
+            warnings.append("ストップ安接近 (Within 2 ATR of limit-down)")
+    if np.isfinite(f["rvol"]) and f["rvol"] < 0.5:
+        warnings.append("出来高閑散 (RVol < 0.5x — thin liquidity)")
 
-    # Add macro context if provided
-    if macro_context:
-        features.update({
-            'nikkei_chg': macro_context.get("nikkei_change_pct", 0.0),
-            'usdjpy_chg': macro_context.get("usdjpy_change_pct", 0.0),
-        })
+    def r1(x, nd=1):
+        return round(float(x), nd) if x is not None and np.isfinite(x) else None
 
-    # Initialize agents and run fusion
-    fusion = AgentFusion([
-        KronosAgent(weight=1.0),      # Kronos gets highest weight for day trading
-        TrendAgent(weight=0.6),
-        MomentumAgent(weight=0.6),
-        BreakoutAgent(weight=0.5),
-        MacroAgent(weight=0.4),
-    ])
-
-    result = fusion.run_all(features)
-
-    # Format result to match existing API
-    signal = result['final_signal']
-    signal_jp = result['final_signal_jp']
-    action = result['final_action']
-    mark = result['final_mark']
-    score = result['final_score']
-    probability_up = result['probability_up']
-    probability_down = result['probability_down']
-    confidence = result['confidence']
-
-    # Setup text based on final signal (keeping some of the original setup logic)
-    if signal == "STRONG BUY":
-        setup = "順張りブレイクアウト（VWAP＆EMA9押し目追随）"
-        action_jp = "買いエントリー"
-    elif signal == "BUY":
-        setup = "サポレジ押し目買い / EMA21リバウンド狙い"
-        action_jp = "押し目買い"
-    elif signal == "STRONG SELL":
-        setup = "下値支持線ブレイクダウン / EMA9下落追随"
-        action_jp = "空売りエントリー"
-    elif signal == "SELL":
-        setup = "戻り高値売り / VWAP・レジスタンス反落"
-        action_jp = "戻り売り"
-    else:  # HOLD
-        setup = "保ち合いレンジ相場 — ブレイクアウト待機"
-        action_jp = "様子見 / 保有"
-
-    # Day Trading Execution Plan (ATR-based dynamic brackets)
-    atr_buffer = max(atr * 1.2, close * 0.005)
-    
-    if action == "BUY":
-        entry_price = round(close, 1)
-        stop_loss = round(close - atr_buffer, 1)
-        target1 = round(close + (atr_buffer * 1.5), 1)
-        target2 = round(close + (atr_buffer * 2.6), 1)
-        risk = entry_price - stop_loss
-        reward = target1 - entry_price
-        rr_ratio = round(reward / risk, 2) if risk > 0 else 1.5
-    elif action == "SELL":
-        entry_price = round(close, 1)
-        stop_loss = round(close + atr_buffer, 1)
-        target1 = round(close - (atr_buffer * 1.5), 1)
-        target2 = round(close - (atr_buffer * 2.6), 1)
-        risk = stop_loss - entry_price
-        reward = entry_price - target1
-        rr_ratio = round(reward / risk, 2) if risk > 0 else 1.5
-    else: # HOLD
-        entry_price = round(close, 1)
-        stop_loss = round(close - atr_buffer, 1)
-        target1 = round(close + atr_buffer, 1)
-        target2 = round(close + (atr_buffer * 2.0), 1)
-        rr_ratio = 1.0
-
-    # Return formatted result
-    # Map signal to English action code for API filtering
-    signal_to_action = {
-        "STRONG BUY": "BUY",
-        "BUY": "BUY",
-        "HOLD": "HOLD",
-        "SELL": "SELL",
-        "STRONG SELL": "SELL"
-    }
-    action_en = signal_to_action.get(signal, "HOLD")
-    
     return {
         "score": score,
         "signal": signal,
-        "signal_jp": signal_jp,
-        "mark": mark,
+        "signal_jp": result["final_signal_jp"],
+        "mark": result["final_mark"],
         "action": action,
         "action_jp": action_jp,
-        "action_en": action_en,  # English action code for filtering
-        "probability_up": probability_up,
-        "probability_down": probability_down,
-        "confidence": confidence,
-        "agents": result['agents'],  # Include individual agent outputs
+        "action_en": action,
+        "probability_up": round(prob["p_up"] * 100, 1) if prob else None,
+        "probability_down": round((1 - prob["p_up"]) * 100, 1) if prob else None,
+        "probability_source": (f"backtest n={prob['n']}, {prob['horizon_bars']}-bar horizon" if prob else "uncalibrated"),
+        "confidence": result["agreement"],
+        "agents": result["agents"],
         "setup": setup,
-        "entry_price": entry_price,
-        "stop_loss": stop_loss,
-        "target1": target1,
-        "target2": target2,
-        "risk_reward": f"1:{rr_ratio}",
-        "factors": {
-            # Keep the old factors structure for compatibility, but now from agents
-            "kronos": next((a['score'] for a in result['agents'] if a['agent'] == 'kronos'), 0),
-            "trend": next((a['score'] for a in result['agents'] if a['agent'] == 'trend'), 0),
-            "momentum": next((a['score'] for a in result['agents'] if a['agent'] == 'momentum'), 0),
-            "breakout": next((a['score'] for a in result['agents'] if a['agent'] == 'breakout'), 0),
-            "macro": next((a['score'] for a in result['agents'] if a['agent'] == 'macro'), 0),
-        },
+        "brackets": build_brackets(action, f, topix500),
+        "factors": {a["agent"]: a["score"] for a in result["agents"]},
         "indicators": {
-            "close": close,
-            "ema9": round(ema9, 1),
-            "ema21": round(ema21, 1),
-            "ema50": round(ema50, 1),
-            "rsi": round(rsi, 1),
-            "macd": round(macd, 2),
-            "macd_signal": round(macd_signal, 2),
-            "macd_hist": round(macd_hist, 2),
-            "atr": round(atr, 1),
-            "rvol": round(rvol, 2),
-            "vwap": round(vwap, 1),
-            "bb_upper": round(bb_upper, 1),
-            "bb_lower": round(bb_lower, 1)
-        }
+            "close": r1(f["close"]), "ema9": r1(f["ema9"]), "ema21": r1(f["ema21"]), "ema50": r1(f["ema50"]),
+            "rsi": r1(f["rsi"]), "macd": r1(f["macd"], 2), "macd_signal": r1(f["macd_signal"], 2),
+            "macd_hist": r1(f["macd_hist"], 2), "atr": r1(f["atr"]), "rvol": r1(f["rvol"], 2),
+            "vwap": r1(f["vwap"]), "vwap_sd": r1(f["vwap_sd"]),
+            "bb_upper": r1(f["bb_upper"]), "bb_lower": r1(f["bb_lower"]),
+        },
+        "levels": {
+            "vwap": r1(f["vwap"]),
+            "vwap_upper1": r1(f["vwap"] + f["vwap_sd"]) if f["intraday"] else None,
+            "vwap_lower1": r1(f["vwap"] - f["vwap_sd"]) if f["intraday"] else None,
+            "vwap_upper2": r1(f["vwap"] + 2 * f["vwap_sd"]) if f["intraday"] else None,
+            "vwap_lower2": r1(f["vwap"] - 2 * f["vwap_sd"]) if f["intraday"] else None,
+            "or_high": r1(f["or_high"]), "or_low": r1(f["or_low"]),
+            "or_complete": f["or_complete"],
+            "prev_day_high": r1(f["prev_day_high"]), "prev_day_low": r1(f["prev_day_low"]),
+            "prev_day_close": r1(f["prev_day_close"]),
+            "session_open": r1(f["session_open"]),
+            "limit_up": limits["limit_up"], "limit_down": limits["limit_down"],
+        },
+        "warnings": warnings,
     }

@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kabutrader — 日本株デイトレード・予測ターミナル (TSE Pro)</title>
@@ -34,6 +33,11 @@
       <div class="macro-item session-indicator">
         <span class="live-dot" id="session-dot"></span>
         <span class="session-text" id="session-status">東証 開場状況確認中...</span>
+      </div>
+
+      <div class="macro-item" id="data-feed" title="データ提供元と遅延">
+        <span class="macro-label">データ</span>
+        <span class="badge badge-feed" id="data-feed-badge">確認中...</span>
       </div>
 
       <div class="macro-item" id="macro-nikkei">
@@ -129,15 +133,17 @@
               <th>市場規模</th>
               <th class="text-right">株価 (円)</th>
               <th class="text-right">前日比</th>
-              <th class="text-center">出来高急増</th>
+              <th class="text-right" title="寄付ギャップ (始値 vs 前日終値)">GAP</th>
+              <th class="text-right" title="セッションVWAPからの乖離率">VWAP乖離</th>
+              <th class="text-center" title="同時刻平均比の累積出来高">RVol</th>
               <th class="text-center">RSI</th>
               <th class="text-center">売買判定</th>
-              <th class="text-right">上昇予測</th>
+              <th class="text-right" title="バックテストで検証された上昇確率 (未実行なら未検証)">上昇確率</th>
             </tr>
           </thead>
           <tbody id="screener-tbody">
             <tr>
-              <td colspan="9" class="loading-state">
+              <td colspan="11" class="loading-state">
                 <div class="spinner"></div>
                 <span>東証全銘柄 (大型・中型・小型グロース) リアルタイム分析中...</span>
               </td>
@@ -182,13 +188,16 @@
         <div class="probability-meter">
           <div class="prob-labels">
             <span class="prob-bull">▲ 上昇予測確率: <strong id="det-prob-up">--%</strong></span>
-            <span class="prob-confidence">モデル信頼度: <strong id="det-confidence">--%</strong></span>
+            <span class="prob-confidence">エージェント一致度: <strong id="det-confidence">--%</strong> / スコア <strong id="det-score">--</strong></span>
             <span class="prob-bear">▼ 下落予測確率: <strong id="det-prob-down">--%</strong></span>
           </div>
           <div class="meter-bar">
             <div class="meter-fill" id="det-meter-fill" style="width: 50%;"></div>
           </div>
+          <div class="prob-source" id="det-prob-source"></div>
         </div>
+
+        <ul class="warning-list" id="det-warnings"></ul>
 
         <!-- AGENT BADGE ROW -->
         <div class="agent-badge-row" id="agent-badge-row">
@@ -200,10 +209,10 @@
           <div class="bracket-box bracket-entry">
             <span class="bracket-label">エントリー目安</span>
             <span class="bracket-val" id="det-entry">¥--</span>
-            <span class="bracket-sub">VWAP / 節目指値</span>
+            <span class="bracket-sub">呼値丸め済み</span>
           </div>
           <div class="bracket-box bracket-stop">
-            <span class="bracket-label">損切りライン (1.5x ATR)</span>
+            <span class="bracket-label">損切りライン (1.2x ATR)</span>
             <span class="bracket-val" id="det-stop">¥--</span>
             <span class="bracket-sub">資金管理・即時撤退</span>
           </div>
@@ -223,40 +232,30 @@
             <span class="bracket-sub">期待損益比</span>
           </div>
         </div>
+
+        <!-- Position Sizing -->
+        <div class="sizing-box">
+          <div class="sizing-inputs">
+            <label>口座資金 (円)<input type="number" id="size-account" min="0" step="100000" value="3000000"></label>
+            <label>1トレード許容損失 (%)<input type="number" id="size-risk" min="0.05" max="10" step="0.05" value="0.5"></label>
+            <label>最大建玉 (資金の%)<input type="number" id="size-maxcap" min="1" max="330" step="10" value="100"></label>
+          </div>
+          <div class="sizing-result" id="size-result">シグナル発生時に株数を計算します (100株単位)</div>
+        </div>
       </div>
 
       <!-- Multi-Factor Prediction Breakdown & Pivots Grid -->
       <div class="analytics-grid">
-        <!-- Quant Factors Breakdown -->
+        <!-- Agent Breakdown -->
         <div class="card quant-factors">
-          <h3>5大要因AI予測マトリクス <span class="card-tag">MULTI-FACTOR</span></h3>
-          <div class="factor-rows">
-            <div class="factor-row">
-              <span class="f-name">トレンド追随度 (EMA 9/21/50 + VWAP)</span>
-              <div class="f-bar-wrap"><div class="f-bar" id="f-trend" style="width: 50%;"></div></div>
-              <span class="f-val" id="f-trend-val">+0</span>
-            </div>
-            <div class="factor-row">
-              <span class="f-name">モメンタム勢力 (RSI & MACD加速度)</span>
-              <div class="f-bar-wrap"><div class="f-bar" id="f-momentum" style="width: 50%;"></div></div>
-              <span class="f-val" id="f-momentum-val">+0</span>
-            </div>
-            <div class="factor-row">
-              <span class="f-name">ボラティリティ収縮・拡大 (ボリンジャー %B / ATR)</span>
-              <div class="f-bar-wrap"><div class="f-bar" id="f-volatility" style="width: 50%;"></div></div>
-              <span class="f-val" id="f-volatility-val">+0</span>
-            </div>
-            <div class="factor-row">
-              <span class="f-name">大口・機関投資家出来高 (RVol相対比)</span>
-              <div class="f-bar-wrap"><div class="f-bar" id="f-volume" style="width: 50%;"></div></div>
-              <span class="f-val" id="f-volume-val">+0</span>
-            </div>
-            <div class="factor-row">
-              <span class="f-name">為替・マクロ連動 (ドル円レート & 日経平均)</span>
-              <div class="f-bar-wrap"><div class="f-bar" id="f-macro" style="width: 50%;"></div></div>
-              <span class="f-val" id="f-macro-val">+0</span>
-            </div>
-          </div>
+          <h3>エージェント別スコア <span class="card-tag">AGENTS</span></h3>
+          <div class="factor-rows" id="agent-rows"></div>
+        </div>
+
+        <!-- Intraday Levels -->
+        <div class="card levels-card">
+          <h3>デイトレード重要水準 <span class="card-tag">INTRADAY LEVELS</span></h3>
+          <div class="pivots-table" id="levels-table"></div>
         </div>
 
         <!-- Floor Pivots & Intraday Levels -->
@@ -276,12 +275,15 @@
       <div class="chart-wrapper">
         <div class="chart-toolbar">
           <div class="timeframe-buttons">
+            <button class="tf-btn" data-tf="5m">5分足</button>
             <button class="tf-btn active" data-tf="15m">15分足 (デイトレード)</button>
             <button class="tf-btn" data-tf="1d">日足 (スイング・トレンド)</button>
           </div>
           <div class="chart-legend">
             <span class="legend-item"><span class="color-dot bull"></span><span class="legend-text-bull">陽線 (上昇)</span></span>
             <span class="legend-item"><span class="color-dot bear"></span><span class="legend-text-bear">陰線 (下落)</span></span>
+            <span class="legend-item"><span class="color-dot vwap"></span><span>VWAP</span></span>
+            <span class="legend-item last-bar" id="last-bar"></span>
           </div>
         </div>
         <div id="chart-container" class="chart-canvas"></div>
