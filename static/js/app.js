@@ -398,7 +398,7 @@ function runDoctor() {
 
   const has = l => checks.some(c => c.level === l);
   const status = has("broken") ? "broken" : has("stale") ? "stale" : has("pending") ? "pending" : "current";
-  const label = { broken: "BROKEN", stale: "STALE", pending: "CHECKING", current: "CURRENT" }[status];
+  const label = { broken: "Health BROKEN", stale: "Health STALE", pending: "Health …", current: "Health OK" }[status];
   const chip = document.getElementById("doctor-chip");
   chip.dataset.status = status;
   document.getElementById("doctor-label").textContent = label;
@@ -407,7 +407,7 @@ function runDoctor() {
     `<div class="doctor-head">データ診断 <span>${fmtJstShort(now)} 確認 · 毎分再チェック</span></div>` +
     checks.map(c => `<div class="doctor-row ${c.level}"><span class="doctor-mark">${mark[c.level]}</span>` +
       `<span class="doctor-name">${esc(c.name)}</span><span class="doctor-detail">${esc(c.detail)}</span></div>`).join("") +
-    `<div class="doctor-foot">CURRENT = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落。祝日は未考慮。</div>`;
+    `<div class="doctor-foot">OK = 最新の大引け (取引中は約${FEED_DELAY_MIN}分遅れ) まで反映 · STALE = それより古い · BROKEN = データ欠落。祝日は未考慮。</div>`;
 }
 
 // Select & Load Stock Details
