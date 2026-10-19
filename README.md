@@ -38,6 +38,17 @@ A quantitative day trading terminal and market screener specialized for the Toky
   - Candlestick chart (JST axis) with session VWAP and entry/stop/target lines.
   - Cap-tier and signal filtering; gap %, VWAP deviation and time-of-day RVol in the scanner.
 
+## Backtest results (2026-10-19, Yahoo 15m bars, 60 days, 33 stocks)
+
+| | 15m, 1 tick slippage | 15m, no slippage | 5m, 1 tick slippage |
+|---|---|---|---|
+| Trades | 5,729 | 5,729 | 13,406 |
+| Win rate | 39.7% | 42.0% | 39.3% |
+| Expectancy | **−0.16R** | −0.02R | **−0.23R** |
+| Profit factor | 0.74 | 0.96 | 0.68 |
+
+**The current signals have no edge.** A STRONG BUY score (≥45) was followed by a higher price 4 bars later 51.7% of the time, against a 52.2% base rate. Small-cap growth names lose the most (ispace −0.83R, BASE −0.56R, FRONTEO −0.53R per trade). `calibration.json` holds these measured probabilities, so the app now shows ~50–54% for every signal. Do not trade real money on these signals until a setup beats costs on held-out data.
+
 ## Limitations — read before trading
 
 - **Data is Yahoo Finance, delayed ~20 minutes** and unofficial. Fine for research and backtests; not for live entries. `data_provider.py` is the single place to plug in a real-time feed (kabu STATION API, Rakuten RSS, J-Quants minute bars).
