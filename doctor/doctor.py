@@ -11,9 +11,10 @@ Runs from .github/workflows/doctor.yml every hour and after every Kronos run.
   2. Fix      - only safe, scripted fixes for things GitHub can redo:
                   * start the Kronos job when its forecasts are stale
                   * re-run a failed Kronos run once
-                Both are rate-limited through state kept in health.json. A stale
-                site snapshot is reported, not fixed: it needs a new Netlify
-                upload.
+                  * start the market snapshot job when its data is stale
+                All are rate-limited through state kept in health.json. GitHub's
+                cron often skips or delays runs, so this is what keeps the site
+                current when a scheduled run does not happen.
   3. Report   - writes health.json, which the site reads live (it is not part
                 of the snapshot) to show Health OK / STALE / BROKEN.
 
@@ -39,6 +40,9 @@ TOKEN = os.environ.get("GITHUB_TOKEN", "")
 API = "https://api.github.com"
 KRONOS_WORKFLOW = "kronos.yml"
 KRONOS_FEED = f"https://raw.githubusercontent.com/{REPO}/kronos-data/kronos.json"
+SNAPSHOT_WORKFLOW = "snapshot.yml"
+# The site reads market data live from this branch (static_site/shim.js)
+SNAPSHOT_FEED = f"https://raw.githubusercontent.com/{REPO}/snapshot-data/snapshot.json"
 PREV_PATH = os.environ.get("DOCTOR_PREV_HEALTH", "")
 OUT_PATH = os.environ.get("DOCTOR_OUT", os.path.join(ROOT, "health.json"))
 DRY_RUN = os.environ.get("DOCTOR_DRY_RUN", "").strip() in ("1", "true", "yes")
@@ -48,6 +52,7 @@ SNAPSHOT_SLACK = timedelta(minutes=45)  # snapshot may trail the latest bar this
 KRONOS_SLACK = timedelta(minutes=90)    # Kronos runs every 30 min; GitHub cron starts late
 KRONOS_MIN_COVERAGE = 0.75              # share of screener stocks with a forecast
 DISPATCH_COOLDOWN = timedelta(minutes=60)
+SNAPSHOT_DISPATCH_COOLDOWN = timedelta(minutes=25)  # the snapshot job takes a few minutes
 RANK = {"ok": 0, "stale": 1, "broken": 2}
 
 
@@ -117,31 +122,32 @@ def check_site():
 
 
 def check_snapshot(now):
-    """Returns (checks, screener_count)."""
+    """Returns (checks, screener_count, stale)."""
     try:
-        snap = get_json(SITE + "/snapshot/snapshot.json")
+        snap = get_json(SNAPSHOT_FEED)
     except Exception as e:
-        return [{"name": "市場データ", "status": "broken", "detail": f"snapshot.json を読めません ({e})"}], 0
+        return [{"name": "市場データ", "status": "broken", "detail": f"snapshot.json を読めません ({e})"}], 0, True
     checks = []
     rows = len((snap.get("screener") or {}).get("stocks") or [])
     checks.append({"name": "スクリーナー", "status": "ok" if rows else "broken",
                    "detail": f"{rows} 銘柄" if rows else "銘柄データが空です"})
     last = snap.get("last_bar")
     expected = expected_last_bar(now)
+    behind = True
     if not last:
         checks.append({"name": "市場データ", "status": "broken", "detail": "最終足の時刻がありません"})
     else:
         last_dt = parse_time(last)
-        behind = expected and last_dt < expected - SNAPSHOT_SLACK
+        behind = bool(expected and last_dt < expected - SNAPSHOT_SLACK)
         detail = f"最終足 {fmt(last_dt)} ({age(now, last_dt)})"
         if behind:
-            detail += f" · 最新は {fmt(expected)} の足。Netlify に新しい zip のアップロードが必要"
+            detail += f" · 最新は {fmt(expected)} の足。更新ジョブ ({SNAPSHOT_WORKFLOW}) が遅れています"
         checks.append({"name": "市場データ", "status": "stale" if behind else "ok", "detail": detail})
     try:
-        get_json(SITE + "/snapshot/kronos.json")
+        get_json(SITE + "/snapshot/snapshot.json")
     except Exception:
-        checks.append({"name": "スナップショット内容", "status": "broken", "detail": "kronos.json がありません"})
-    return checks, rows
+        checks.append({"name": "スナップショット内容", "status": "broken", "detail": "サイトに予備データがありません"})
+    return checks, rows, behind
 
 
 def check_kronos_feed(now, screener_rows):
@@ -225,6 +231,34 @@ def fix_kronos(now, runs, feed_stale, prev_state, state):
     return fixes
 
 
+def fix_snapshot(now, stale, prev_state, state):
+    """Start the snapshot job when the live market data is behind (trading days only)."""
+    last = prev_state.get("snapshot_dispatch_at")
+    if last:
+        state["snapshot_dispatch_at"] = last
+    if not stale or not TOKEN or not is_trading_day(now.date()):
+        return []
+    if last and now - parse_time(last) < SNAPSHOT_DISPATCH_COOLDOWN:
+        return []
+    try:
+        runs = gh("GET", f"/repos/{REPO}/actions/workflows/{SNAPSHOT_WORKFLOW}/runs?per_page=3"
+                         f"&exclude_pull_requests=true").get("workflow_runs", [])
+    except Exception as e:
+        print(f"[doctor] could not list snapshot runs: {e}", flush=True)
+        runs = []
+    if any(r.get("status") in ("queued", "in_progress", "waiting", "requested") for r in runs):
+        return []
+    action = "古い市場データのため更新ジョブを開始"
+    if DRY_RUN:
+        return [{"action": action, "done": False, "result": "dry run"}]
+    try:
+        gh("POST", f"/repos/{REPO}/actions/workflows/{SNAPSHOT_WORKFLOW}/dispatches", {"ref": "master"})
+        state["snapshot_dispatch_at"] = now.isoformat(timespec="seconds")
+        return [{"action": action, "done": True, "result": "更新ジョブを開始"}]
+    except Exception as e:
+        return [{"action": action, "done": False, "result": str(e)}]
+
+
 # ---------------------------------------------------------------- main
 
 def diagnose(now=None):
@@ -238,7 +272,7 @@ def diagnose(now=None):
             prev = {}
 
     checks = [check_site()]
-    snap_checks, rows = check_snapshot(now)
+    snap_checks, rows, snap_stale = check_snapshot(now)
     checks += snap_checks
     kronos_check, feed_stale = check_kronos_feed(now, rows)
     checks.append(kronos_check)
@@ -246,7 +280,9 @@ def diagnose(now=None):
     checks.append(check_kronos_job(runs))
 
     state = {}
-    fixes = fix_kronos(now, runs, feed_stale, prev.get("state") or {}, state)
+    prev_state = prev.get("state") or {}
+    fixes = fix_kronos(now, runs, feed_stale, prev_state, state)
+    fixes += fix_snapshot(now, snap_stale, prev_state, state)
     status = max((c["status"] for c in checks), key=RANK.get)
     return {"checked_at": now.isoformat(timespec="seconds"), "status": status, "site": SITE,
             "checks": checks, "fixes": fixes, "state": state}

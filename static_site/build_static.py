@@ -2,9 +2,11 @@
 Builds a static snapshot of the terminal for free static hosting (Netlify, etc.).
 
 Runs every API endpoint once through the Flask test client and writes the JSON
-next to the rendered page, so the site needs no server or functions. The data
-is frozen at build time; static_site/shim.js serves it and labels the page as a
-snapshot. Re-run this script and redeploy to refresh.
+next to the rendered page, so the site needs no server or functions.
+.github/workflows/snapshot.yml runs this every 15 minutes during TSE hours and
+publishes dist/snapshot/ to the snapshot-data branch, which static_site/shim.js
+reads live. The copy bundled into a Netlify upload is only a fallback, so the
+site itself needs redeploying only when the page code changes.
 
     python static_site/build_static.py [out_dir]
     python static_site/build_static.py --kronos-only [out_dir]   # refresh Kronos forecasts only
@@ -14,14 +16,14 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from app import app  # noqa: E402
 from universe import STOCKS_UNIVERSE  # noqa: E402
-from market_rules import JST  # noqa: E402
+from market_rules import JST, is_trading_day, jpholiday  # noqa: E402
 import kronos_feed  # noqa: E402
 
 INTERVALS = ("5m", "15m", "1d")
@@ -30,6 +32,17 @@ INTERVALS = ("5m", "15m", "1d")
 def get_json(client, url):
     r = client.get(url)
     return r.status_code, r.get_json()
+
+
+def upcoming_holidays(start, days=21):
+    """Weekdays in the coming weeks when the TSE is shut, {"YYYY-MM-DD": name}.
+    The page uses these to tell the session state without a server."""
+    out = {}
+    for i in range(days):
+        d = start + timedelta(days=i)
+        if d.weekday() < 5 and not is_trading_day(d):
+            out[d.isoformat()] = (jpholiday.is_holiday_name(d) if jpholiday else None) or "年末年始"
+    return out
 
 
 def write_kronos(api_dir):
@@ -66,7 +79,8 @@ def main(out):
 
     last_bars = [s["last_bar"] for s in screener["stocks"]]
     snapshot = {"built_at": built_at, "last_bar": max(last_bars) if last_bars else None,
-                "macro": macro, "screener": screener, "session": session}
+                "macro": macro, "screener": screener, "session": session,
+                "holidays": upcoming_holidays(datetime.now(JST).date())}
     with open(os.path.join(api, "snapshot.json"), "w") as f:
         json.dump(snapshot, f, ensure_ascii=False, separators=(",", ":"))
 

@@ -1,12 +1,13 @@
-# Site doctor: checks minnanokabu.netlify.app and the Kronos job every hour and
-# after every Kronos run, applies safe fixes (re-runs Kronos), and publishes
+# Site doctor: checks minnanokabu.netlify.app, its live market snapshot and the
+# Kronos job twice an hour and after every Kronos run, applies safe fixes
+# (re-runs Kronos, starts the snapshot job when data is behind), and publishes
 # health.json to the doctor-status branch. The site reads it live to show
 # Health OK / STALE / BROKEN. See doctor/doctor.py.
 name: Site doctor
 
 on:
   schedule:
-    - cron: "47 * * * *"
+    - cron: "17,47 * * * *"
   workflow_run:
     workflows: ["Kronos intraday forecast"]
     types: [completed]

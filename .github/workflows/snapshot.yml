@@ -1,0 +1,80 @@
+# Rebuilds the market snapshot (static_site/build_static.py) every 15 minutes
+# during TSE hours and publishes it to the snapshot-data branch. The Netlify
+# site (static_site/shim.js) reads that branch live, so it stays current without
+# a new upload. A build with no screener rows is not published, so a bad Yahoo
+# run leaves the last good snapshot in place.
+name: Market snapshot
+
+on:
+  schedule:
+    - cron: "*/15 0-6 * * 1-5"    # 09:00-15:45 JST, weekdays
+    - cron: "5,25 7 * * 1-5"      # 16:05 / 16:25 JST: pick up the closing bar (cron often starts late)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - static_site/**
+      - .github/workflows/snapshot.yml
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Skip TSE holidays
+        id: day
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          from datetime import datetime
+          from market_rules import JST, is_trading_day
+          print("open=" + ("1" if is_trading_day(datetime.now(JST).date()) else "0"))
+          EOF
+
+      - name: Build snapshot
+        if: steps.day.outputs.open == '1' || github.event_name != 'schedule'
+        run: python -u static_site/build_static.py dist
+
+      - name: Check snapshot
+        if: steps.day.outputs.open == '1' || github.event_name != 'schedule'
+        run: |
+          python - <<'EOF'
+          import json, sys
+          s = json.load(open("dist/snapshot/snapshot.json"))
+          rows = len(s["screener"]["stocks"])
+          print(f"rows={rows} last_bar={s['last_bar']} built_at={s['built_at']}")
+          sys.exit(0 if rows and s["last_bar"] else 1)
+          EOF
+
+      - name: Publish to snapshot-data branch
+        if: (steps.day.outputs.open == '1' || github.event_name != 'schedule') && github.event_name != 'pull_request'
+        run: |
+          mkdir pub && cp -r dist/snapshot/. pub/
+          cd pub
+          git init -q -b snapshot-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Market snapshot $(date -u +%FT%TZ)"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:snapshot-data
+
+      - uses: actions/upload-artifact@v4
+        if: steps.day.outputs.open == '1' || github.event_name != 'schedule'
+        with:
+          name: site
+          path: dist
+          retention-days: 3

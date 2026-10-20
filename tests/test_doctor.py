@@ -39,7 +39,27 @@ def test_old_snapshot_is_stale_and_says_why(monkeypatch):
     report = doctor.diagnose(datetime(2026, 10, 20, 10, 50, tzinfo=JST))
     assert report["status"] == "stale"
     market = next(c for c in report["checks"] if c["name"] == "市場データ")
-    assert "アップロード" in market["detail"]
+    assert "snapshot.yml" in market["detail"]
+
+
+def test_stale_snapshot_starts_the_snapshot_job(monkeypatch):
+    _fake_site(monkeypatch, "2026-10-19T15:15:00+09:00", "2026-10-20T10:38:00+09:00")
+    calls = []
+
+    def gh(method, path, body=None):
+        calls.append((method, path))
+        return {"workflow_runs": []}
+
+    monkeypatch.setattr(doctor, "TOKEN", "t")
+    monkeypatch.setattr(doctor, "gh", gh)
+    monkeypatch.setattr(doctor, "DRY_RUN", False)
+    report = doctor.diagnose(datetime(2026, 10, 20, 10, 50, tzinfo=JST))
+    assert ("POST", f"/repos/{doctor.REPO}/actions/workflows/snapshot.yml/dispatches") in calls
+    assert report["state"]["snapshot_dispatch_at"].startswith("2026-10-20T10:50")
+    # inside the cooldown it does not start it again
+    calls.clear()
+    monkeypatch.setattr(doctor, "PREV_PATH", "")
+    assert doctor.fix_snapshot(datetime(2026, 10, 20, 11, 0, tzinfo=JST), True, report["state"], {}) == []
 
 
 def test_missing_kronos_forecasts_is_broken(monkeypatch):
