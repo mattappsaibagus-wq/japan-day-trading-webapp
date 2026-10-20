@@ -1,0 +1,15 @@
+# minnanokabu.netlify.app, built from this repo when the page code changes.
+# Market data does not need a deploy: the page reads it live from the
+# snapshot-data branch (.github/workflows/snapshot.yml). The snapshot bundled by
+# this build is only a fallback for when that branch cannot be reached.
+[build]
+  command = "python static_site/build_static.py dist"
+  publish = "dist"
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
+
+[[headers]]
+  for = "/static/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
