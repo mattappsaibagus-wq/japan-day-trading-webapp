@@ -1,0 +1,49 @@
+# Keeps snapshot / Kronos / paper-trading on time without GitHub's cron, which
+# is throttled (see heartbeat.py). One run lasts ~5h40m, then starts the next.
+# The cron lines below only restart the chain if it ever breaks; the doctor
+# does the same. The concurrency group keeps a single heartbeat running.
+name: Heartbeat
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "40 23 * * 0-4"   # 08:40 JST, weekdays (backup start)
+    - cron: "10 2 * * 1-5"    # 11:10 JST (backup)
+  pull_request:
+    paths:
+      - heartbeat.py
+      - .github/workflows/heartbeat.yml
+
+concurrency:
+  group: heartbeat-${{ github.event_name == 'pull_request' && 'pr' || 'main' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write   # start snapshot / kronos / paper and the next heartbeat
+
+jobs:
+  beat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install "jpholiday>=0.1.10"
+
+      - name: Test (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          HEARTBEAT_DRY_RUN: "1"
+          HEARTBEAT_RUN_MINUTES: "1"
+        run: python -u heartbeat.py
+
+      - name: Keep time
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -u heartbeat.py
