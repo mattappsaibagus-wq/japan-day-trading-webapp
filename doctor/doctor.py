@@ -41,6 +41,7 @@ API = "https://api.github.com"
 KRONOS_WORKFLOW = "kronos.yml"
 KRONOS_FEED = f"https://raw.githubusercontent.com/{REPO}/kronos-data/kronos.json"
 SNAPSHOT_WORKFLOW = "snapshot.yml"
+HEARTBEAT_WORKFLOW = "heartbeat.yml"  # keeps snapshot/kronos/paper on time (GitHub cron is throttled)
 # The site reads market data live from this branch (static_site/shim.js)
 SNAPSHOT_FEED = f"https://raw.githubusercontent.com/{REPO}/snapshot-data/snapshot.json"
 PREV_PATH = os.environ.get("DOCTOR_PREV_HEALTH", "")
@@ -259,6 +260,28 @@ def fix_snapshot(now, stale, prev_state, state):
         return [{"action": action, "done": False, "result": str(e)}]
 
 
+def fix_heartbeat(now):
+    """Start heartbeat.yml (the job that keeps the others on time) if it is not running."""
+    if not TOKEN:
+        return []
+    try:
+        runs = gh("GET", f"/repos/{REPO}/actions/workflows/{HEARTBEAT_WORKFLOW}/runs?per_page=5"
+                         f"&exclude_pull_requests=true").get("workflow_runs", [])
+    except Exception as e:
+        print(f"[doctor] could not list heartbeat runs: {e}", flush=True)
+        return []
+    if any(r.get("status") in ("queued", "in_progress", "waiting", "requested", "pending") for r in runs):
+        return []
+    action = "停止していたハートビート (定時実行) を再開"
+    if DRY_RUN:
+        return [{"action": action, "done": False, "result": "dry run"}]
+    try:
+        gh("POST", f"/repos/{REPO}/actions/workflows/{HEARTBEAT_WORKFLOW}/dispatches", {"ref": "master"})
+        return [{"action": action, "done": True, "result": "再開しました"}]
+    except Exception as e:
+        return [{"action": action, "done": False, "result": str(e)}]
+
+
 # ---------------------------------------------------------------- main
 
 def diagnose(now=None):
@@ -283,6 +306,7 @@ def diagnose(now=None):
     prev_state = prev.get("state") or {}
     fixes = fix_kronos(now, runs, feed_stale, prev_state, state)
     fixes += fix_snapshot(now, snap_stale, prev_state, state)
+    fixes += fix_heartbeat(now)
     status = max((c["status"] for c in checks), key=RANK.get)
     return {"checked_at": now.isoformat(timespec="seconds"), "status": status, "site": SITE,
             "checks": checks, "fixes": fixes, "state": state}

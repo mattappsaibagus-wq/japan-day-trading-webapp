@@ -65,3 +65,23 @@ def test_stale_snapshot_starts_the_snapshot_job(monkeypatch):
 def test_missing_kronos_forecasts_is_broken(monkeypatch):
     _fake_site(monkeypatch, "2026-10-20T10:00:00+09:00", "2026-10-20T10:38:00+09:00", n=3)
     assert doctor.diagnose(datetime(2026, 10, 20, 10, 50, tzinfo=JST))["status"] == "broken"
+
+
+def test_doctor_restarts_a_stopped_heartbeat(monkeypatch):
+    calls = []
+
+    def gh(method, path, body=None):
+        calls.append((method, path))
+        return {"workflow_runs": [{"status": "completed"}]}
+
+    monkeypatch.setattr(doctor, "TOKEN", "t")
+    monkeypatch.setattr(doctor, "gh", gh)
+    monkeypatch.setattr(doctor, "DRY_RUN", False)
+    assert doctor.fix_heartbeat(datetime(2026, 10, 21, 10, 0, tzinfo=JST))[0]["done"]
+    assert ("POST", f"/repos/{doctor.REPO}/actions/workflows/heartbeat.yml/dispatches") in calls
+
+
+def test_doctor_leaves_a_running_heartbeat(monkeypatch):
+    monkeypatch.setattr(doctor, "TOKEN", "t")
+    monkeypatch.setattr(doctor, "gh", lambda m, p, b=None: {"workflow_runs": [{"status": "in_progress"}]})
+    assert doctor.fix_heartbeat(datetime(2026, 10, 21, 10, 0, tzinfo=JST)) == []
