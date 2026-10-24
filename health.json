@@ -1,0 +1,37 @@
+{
+ "checked_at": "2026-10-25T04:49:58+09:00",
+ "status": "ok",
+ "site": "https://minnanokabu.netlify.app",
+ "checks": [
+  {
+   "name": "サイト稼働",
+   "status": "ok",
+   "detail": "https://minnanokabu.netlify.app 応答 OK"
+  },
+  {
+   "name": "スクリーナー",
+   "status": "ok",
+   "detail": "33 銘柄"
+  },
+  {
+   "name": "市場データ",
+   "status": "ok",
+   "detail": "最終足 10/23 15:15 JST (37時間前)"
+  },
+  {
+   "name": "Kronos 予測",
+   "status": "ok",
+   "detail": "10/23 21:21 JST 更新 (31時間前) · 33 銘柄"
+  },
+  {
+   "name": "Kronos ジョブ",
+   "status": "ok",
+   "detail": "最終実行 10/23 21:22 JST 成功"
+  }
+ ],
+ "fixes": [],
+ "state": {
+  "kronos_dispatch_at": "2026-10-21T09:38:56+09:00",
+  "snapshot_dispatch_at": "2026-10-22T13:06:49+09:00"
+ }
+}
