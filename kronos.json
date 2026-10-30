@@ -1,0 +1,411 @@
+{
+ "generated_at": "2026-10-30T22:46:21+09:00",
+ "source": "Kronos (shiyu-coder/Kronos, NeoQuasar/Kronos-small)",
+ "interval": "15m",
+ "horizon_bars": 4,
+ "n_paths": 8,
+ "forecasts": {
+  "7203.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.349,
+   "range_pct": [
+    -1.635,
+    0.975
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6758.T": {
+   "direction": "down",
+   "expected_move_pct": -0.402,
+   "range_pct": [
+    -2.958,
+    1.962
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "9983.T": {
+   "direction": "flat",
+   "expected_move_pct": 0.222,
+   "range_pct": [
+    -1.198,
+    1.76
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "8035.T": {
+   "direction": "down",
+   "expected_move_pct": -0.546,
+   "range_pct": [
+    -1.596,
+    0.616
+   ],
+   "path_agreement": 0.75,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "9984.T": {
+   "direction": "down",
+   "expected_move_pct": -2.905,
+   "range_pct": [
+    -4.932,
+    -1.31
+   ],
+   "path_agreement": 1.0,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "8306.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.216,
+   "range_pct": [
+    -2.842,
+    3.048
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6861.T": {
+   "direction": "up",
+   "expected_move_pct": 0.414,
+   "range_pct": [
+    -0.329,
+    1.56
+   ],
+   "path_agreement": 0.75,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "7974.T": {
+   "direction": "down",
+   "expected_move_pct": -1.443,
+   "range_pct": [
+    -3.612,
+    0.189
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6501.T": {
+   "direction": "up",
+   "expected_move_pct": 2.31,
+   "range_pct": [
+    1.291,
+    3.444
+   ],
+   "path_agreement": 1.0,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4063.T": {
+   "direction": "down",
+   "expected_move_pct": -0.713,
+   "range_pct": [
+    -2.455,
+    0.108
+   ],
+   "path_agreement": 0.75,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "8058.T": {
+   "direction": "down",
+   "expected_move_pct": -1.163,
+   "range_pct": [
+    -1.96,
+    0.853
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "7267.T": {
+   "direction": "down",
+   "expected_move_pct": -0.927,
+   "range_pct": [
+    -1.419,
+    -0.13
+   ],
+   "path_agreement": 1.0,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6920.T": {
+   "direction": "down",
+   "expected_move_pct": -1.0,
+   "range_pct": [
+    -6.176,
+    4.269
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6857.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.205,
+   "range_pct": [
+    -4.849,
+    8.07
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6526.T": {
+   "direction": "down",
+   "expected_move_pct": -1.017,
+   "range_pct": [
+    -2.738,
+    1.67
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6146.T": {
+   "direction": "up",
+   "expected_move_pct": 0.326,
+   "range_pct": [
+    -0.949,
+    1.675
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4385.T": {
+   "direction": "down",
+   "expected_move_pct": -1.402,
+   "range_pct": [
+    -3.165,
+    0.09
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4755.T": {
+   "direction": "down",
+   "expected_move_pct": -0.961,
+   "range_pct": [
+    -2.9,
+    0.324
+   ],
+   "path_agreement": 0.75,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "6723.T": {
+   "direction": "down",
+   "expected_move_pct": -1.641,
+   "range_pct": [
+    -3.921,
+    0.143
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "7012.T": {
+   "direction": "up",
+   "expected_move_pct": 0.357,
+   "range_pct": [
+    -0.787,
+    1.457
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "2413.T": {
+   "direction": "up",
+   "expected_move_pct": 0.018,
+   "range_pct": [
+    -1.794,
+    1.801
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4689.T": {
+   "direction": "down",
+   "expected_move_pct": -0.145,
+   "range_pct": [
+    -1.01,
+    1.522
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4062.T": {
+   "direction": "down",
+   "expected_move_pct": -0.776,
+   "range_pct": [
+    -2.865,
+    1.887
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T09:30:00+09:00",
+   "target_bar": "2026-10-30T10:30:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "5032.T": {
+   "direction": "down",
+   "expected_move_pct": -0.034,
+   "range_pct": [
+    -1.75,
+    2.127
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "5253.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.039,
+   "range_pct": [
+    -1.091,
+    0.948
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4180.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.434,
+   "range_pct": [
+    -4.612,
+    1.806
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4443.T": {
+   "direction": "up",
+   "expected_move_pct": 0.147,
+   "range_pct": [
+    -3.474,
+    2.7
+   ],
+   "path_agreement": 0.75,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "9166.T": {
+   "direction": "up",
+   "expected_move_pct": 1.78,
+   "range_pct": [
+    0.21,
+    3.329
+   ],
+   "path_agreement": 1.0,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4478.T": {
+   "direction": "down",
+   "expected_move_pct": -3.984,
+   "range_pct": [
+    -8.568,
+    -1.082
+   ],
+   "path_agreement": 1.0,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4393.T": {
+   "direction": "flat",
+   "expected_move_pct": -0.068,
+   "range_pct": [
+    -4.035,
+    5.595
+   ],
+   "path_agreement": 0.5,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "9348.T": {
+   "direction": "flat",
+   "expected_move_pct": 0.085,
+   "range_pct": [
+    -0.281,
+    0.815
+   ],
+   "path_agreement": 0.25,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "4477.T": {
+   "direction": "up",
+   "expected_move_pct": 0.822,
+   "range_pct": [
+    -0.864,
+    2.473
+   ],
+   "path_agreement": 0.875,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  },
+  "2158.T": {
+   "direction": "up",
+   "expected_move_pct": 0.557,
+   "range_pct": [
+    -3.098,
+    2.631
+   ],
+   "path_agreement": 0.625,
+   "last_bar": "2026-10-30T15:15:00+09:00",
+   "target_bar": "2026-11-02T09:45:00+09:00",
+   "model": "NeoQuasar/Kronos-small"
+  }
+ },
+ "stats": {
+  "symbols": 33,
+  "forecast": 33,
+  "skipped": {},
+  "seconds": 219.3
+ }
+}
